@@ -603,7 +603,14 @@ function buildSerial(widget: Widget, data: QueryResult | null) {
       const statType = ds?.statisticDefinitions?.[0]?.statisticType ?? "";
       splitStack = /^(sum|count)$/i.test(statType);
       const splitColors = widget.chartConfig?.splitColors;
-      const ranked = [...totals.entries()].sort((a, b) => (splitColors ? a[0].localeCompare(b[0]) : b[1] - a[1]));
+      const splitOrder = widget.chartConfig?.splitOrder;
+      const rank = (name: string) => {
+        const i = splitOrder?.indexOf(name) ?? -1;
+        return i < 0 ? Infinity : i;
+      };
+      const ranked = [...totals.entries()].sort((a, b) =>
+        splitOrder ? rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]) : splitColors ? a[0].localeCompare(b[0]) : b[1] - a[1],
+      );
       const limit = splitColors ? ranked.length : MAX_SERIES;
       hidden = Math.max(0, ranked.length - limit);
       // Өнгө нь утгын нэрээр тогтмол — шүүлтүүрээр цуваа цөөрөхөд өнгө солигдохгүй
@@ -715,7 +722,9 @@ function SerialChart({ widget }: { widget: Widget }) {
   const cutCount = sortedRows.length - rows.length;
   // Хэвтээ баганыг картын өндөрт тааруулна: мөр өндөр бол багана ч бага зэрэг зузаарна (14–26px)
   const rowSpace = horizontal && area.h && rows.length ? Math.min(ROW_H, (area.h - 8) / rows.length) : 0;
-  const barSize = horizontal ? Math.round(Math.min(26, Math.max(BAR_SIZE, rowSpace * 0.42))) : widget.chartConfig?.wideColumns ? 44 : BAR_SIZE;
+  // Хэсэг бүр дотроо утгатай багана: тоо багтахаар зузаан
+  const segments = horizontal && Boolean(stacked) && Boolean(widget.chartConfig?.segmentLabels);
+  const barSize = horizontal ? Math.round(segments ? Math.min(34, Math.max(BAR_SIZE, rowSpace * 0.68)) : Math.min(26, Math.max(BAR_SIZE, rowSpace * 0.42))) : widget.chartConfig?.wideColumns ? 44 : BAR_SIZE;
   const showLabels = single && rows.length <= 24 && (widget.chartConfig?.series?.[0]?.dataLabels?.visible ?? false);
   const fmt = (v: unknown) => formatNumber(v, widget.valueFormat);
   const opacity = (x: unknown) => (selected.size === 0 || selected.has(String(x)) ? 1 : 0.3);
@@ -903,9 +912,9 @@ function SerialChart({ widget }: { widget: Widget }) {
   const plotLen = horizontal ? (scroll ? need : area.h) : scroll ? need : Math.max(0, area.w - VAL_W - 20);
   const slot = rows.length ? plotLen / rows.length : 0;
   // Хэвтээ баганан графикт утга баган дээрээ бичигдэх тул доорх тоон тэнхлэгийг нууж мөрөнд зай өгнө
-  const hideValAxisH = horizontal && wantLabels && barSeries.length > 0 && (barSeries.length === 1 || stackedBars || planActual);
+  const hideValAxisH = !segments && horizontal && wantLabels && barSeries.length > 0 && (barSeries.length === 1 || stackedBars || planActual);
   const barLabelsOn =
-    (!widget.chartConfig?.columns || rows.length <= 20) && wantLabels && barSeries.length > 0 && (barSeries.length === 1 || stackedBars) && slot >= (horizontal ? 12 : 11);
+    !segments && (!widget.chartConfig?.columns || rows.length <= 20) && wantLabels && barSeries.length > 0 && (barSeries.length === 1 || stackedBars) && slot >= (horizontal ? 12 : 11);
   const paLabelsOn = planActual && slot >= 12;
   const paFull = (r: Record<string, unknown>) => {
     const plan = Number(r[planKey]) || 0;
@@ -964,9 +973,22 @@ function SerialChart({ widget }: { widget: Widget }) {
     }
     return <text x={cx} y={y - 5} textAnchor="middle" fontSize={10} style={style}>{txt}</text>;
   };
+  // Хэсгийн дотор утга. Багтахгүй бол нууна (tooltip-д бий)
+  const segmentLabel = (p: { x?: number | string; y?: number | string; width?: number | string; height?: number | string; value?: unknown }) => {
+    const value = Number(p.value);
+    if (!Number.isFinite(value) || value === 0) return null;
+    const txt = formatNumber(value, widget.labelFormat ?? widget.valueFormat);
+    const x = Number(p.x), y = Number(p.y), w = Number(p.width), h = Number(p.height);
+    if (w < txt.length * 5.2 + 2 || h < 11) return null;
+    return (
+      <text x={x + w / 2} y={y + h / 2} textAnchor="middle" dominantBaseline="central" fontSize={10.5} fontWeight={500} style={{ fill: "var(--text-primary)", paintOrder: "stroke", stroke: "var(--surface-1)", strokeWidth: 2.5, pointerEvents: "none" }}>
+        {txt}
+      </text>
+    );
+  };
 
   const margin = {
-    top: horizontal ? 4 : rotateLabels ? Math.round(10 + longestLabel * 5.6) : showLabels || hasLine || barLabelsOn ? 18 : 6,
+    top: segments && guides.length ? 18 : horizontal ? 4 : rotateLabels ? Math.round(10 + longestLabel * 5.6) : showLabels || hasLine || barLabelsOn ? 18 : 6,
     right: horizontal && (showLabels || barLabelsOn || paLabelsOn) ? Math.max(24, Math.round(10 + longestLabel * 6.2)) : hasLine ? 16 : 10,
     left: 0,
     bottom: 0,
@@ -1028,7 +1050,7 @@ function SerialChart({ widget }: { widget: Widget }) {
             stroke={solidBars ? "none" : sr.color}
             strokeWidth={1}
             strokeDasharray={planActual && sr.key === planKey ? "3 2" : undefined}
-            radius={horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0]}
+            radius={segments ? 0 : horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0]}
             maxBarSize={barSize}
             barSize={planActual ? barSize : undefined}
             stackId={stacked}
@@ -1037,12 +1059,13 @@ function SerialChart({ widget }: { widget: Widget }) {
             {rows.map((r, i) => (
               <Cell
                 key={i}
-                fillOpacity={(planActual ? (sr.key === planKey ? 0.08 : 0.5) : solidBars ? 0.55 : FILL_ALPHA) * opacity(r.__x)}
+                fillOpacity={(planActual ? (sr.key === planKey ? 0.08 : 0.5) : solidBars ? 0.55 : segments ? 0.32 : FILL_ALPHA) * opacity(r.__x)}
                 strokeOpacity={opacity(r.__x)}
                 {...(single && isBlank(r.__x) && !widget.chartConfig?.nullIsValue ? { fill: EMPTY_COLOR, stroke: EMPTY_COLOR } : {})}
               />
             ))}
             {barLabelsOn && (!stackedBars || sr.key === topBarKey) && <LabelList dataKey={sr.key} content={barLabel} />}
+            {segments && <LabelList dataKey={sr.key} content={segmentLabel} />}
             {paLabelsOn && sr.key === planKey && <LabelList dataKey={sr.key} content={paLabel} />}
           </Bar>
         ) : (
@@ -1066,10 +1089,19 @@ function SerialChart({ widget }: { widget: Widget }) {
       )}
       {/* Стандартын хязгаар — тасархай шугам (муж бол бүдэг дэвсгэр), нэр нь шугамын дээр */}
       {guides.map((g, i) => {
+        // Хэвтээ графикт шугам зүүн захад ойр бол шошго баруун талд нь: ангиллын нэртэй давхцаж, тасрахгүй
+        const span = Number(valueDomain[1]) - Number(valueDomain[0]);
+        const nearStart = horizontal && span > 0 && (g.start - Number(valueDomain[0])) / span < 0.35;
+        // Хэсэг бүр утгатай графикт шошго баганын дээр: тоотой давхцахгүй
+        const aboveBars = (p: { viewBox?: { x?: number; y?: number } }) => (
+          <text x={p.viewBox?.x} y={(p.viewBox?.y ?? 0) - 5} textAnchor={nearStart ? "start" : "end"} fontSize={10} style={{ fill: g.color }}>
+            {g.label}
+          </text>
+        );
         const label = g.label && !widget.chartConfig?.allRows
-          ? {
+          ? segments ? aboveBars : {
               value: g.label,
-              position: (horizontal ? "insideTopRight" : g.left ? "insideTopLeft" : "insideTopRight") as "insideTopRight",
+              position: (horizontal ? (nearStart ? "insideTopLeft" : "insideTopRight") : g.left ? "insideTopLeft" : "insideTopRight") as "insideTopRight",
               fill: g.color,
               fontSize: 10,
               style: { paintOrder: "stroke", stroke: "var(--surface-1)", strokeWidth: 3 },
@@ -1153,7 +1185,7 @@ function SerialChart({ widget }: { widget: Widget }) {
               ))}
             </ul>
           ) : (
-            !single && <SeriesLegend series={series} hidden={hidden} lines={widget.chartConfig?.plainLines ? 3 : chartBox.h > 0 && chartBox.h < 240 ? 1 : 2} />
+            !single && <SeriesLegend series={series} hidden={hidden} lines={widget.chartConfig?.legendLines ?? (widget.chartConfig?.plainLines ? 3 : chartBox.h > 0 && chartBox.h < 240 ? 1 : 2)} />
           )}
           {cutCount > 0 && (
             <div className="dw-topn" title="Шүүлтүүр (төсөл, огноо…) хэрэглэвэл цөөн ангилал үлдэж бүгд харагдана">
@@ -1828,11 +1860,15 @@ export function ProjectMixWidget({ widget }: { widget: Widget }) {
   );
 }
 
+// fullLegend нь «Бусад»-д нэгтгэхгүй: 8-аас олон утга өнгөө давтахгүй
+const FULL_LEGEND_PALETTE = [...PALETTE, "#2fb5c9", "#b7814a", "#a7c636", "#9aa7b0"];
+
 export function PieChartWidget({ widget }: { widget: Widget }) {
   const [legendRef, legendSize] = useSize<HTMLUListElement>();
   // Самбар өргөн бол тайлбар баруун талд, өндөр бол доор — хэлбэрээс нь хамааруулна
   const [pieRef, pieSize] = useSize<HTMLDivElement>();
-  const pieRow = !pieSize.w || pieSize.w >= pieSize.h * 1.25;
+  const fullLegend = Boolean(widget.chartConfig?.fullLegend);
+  const pieRow = fullLegend || !pieSize.w || pieSize.w >= pieSize.h * 1.25;
   const { data, loading, error, filtered } = useWidgetData(widget);
   const ds = widget.datasets?.[0];
   const fields = fieldMap(data);
@@ -1861,7 +1897,7 @@ export function PieChartWidget({ widget }: { widget: Widget }) {
       raw = rows.map((r) => ({ x: r[x], label: categoryLabel(widget, r[x], fields[x]), value: Number(r[y]) || 0 }));
     }
     raw = raw.filter((s) => s.value > 0 && !(mono && isBlank(s.x))).sort((a, b) => b.value - a.value);
-    const limit = mono ? (widget.maxItems ?? 5) + 1 : MAX_SERIES;
+    const limit = fullLegend ? Infinity : mono ? (widget.maxItems ?? 5) + 1 : MAX_SERIES;
     if (raw.length > limit) {
       const rest = raw.slice(limit - 1);
       raw = [...raw.slice(0, limit - 1), { x: "__other__", label: `Бусад (${rest.length})`, value: rest.reduce((a, s) => a + s.value, 0) }];
@@ -1874,6 +1910,7 @@ export function PieChartWidget({ widget }: { widget: Widget }) {
     const keys = own.map((c) => (c ? c.slice(0, 3).join(",") : ""));
     const useArcgis = own.length > 0 && own.every((c) => c && lum(c) >= 0.4) && new Set(keys).size === keys.length;
     const darkColors = !useArcgis;
+    const palette = fullLegend ? FULL_LEGEND_PALETTE : PALETTE;
     let slot = 0;
     return raw.map((s) => {
       // Нэрийг ArcGIS-ийн тохиргооноос үргэлж авна; өнгийг зөвхөн тохирох үед
@@ -1891,10 +1928,10 @@ export function PieChartWidget({ widget }: { widget: Widget }) {
           ? "#5b6b74"
           : isBlank(s.x)
             ? EMPTY_COLOR
-            : PALETTE[slot++ % PALETTE.length];
+            : palette[slot++ % palette.length];
       return { ...s, label, pct: total ? s.value / total : 0, color };
     });
-  }, [data, widget, ds, xField, pieSeries, infos, fields, mono]);
+  }, [data, widget, ds, xField, pieSeries, infos, fields, mono, fullLegend]);
   // Бөглөөгүй мөр: зүсэм биш, тайлбарын доор
   const blank = useMemo(() => {
     if (!mono) return null;
@@ -1962,7 +1999,7 @@ export function PieChartWidget({ widget }: { widget: Widget }) {
       {!slices.length && !loading ? (
         <div className="dw-msg">Өгөгдөл алга</div>
       ) : (
-        <div className={`dw-pie ${pieRow ? "row" : "col"}`} ref={pieRef}>
+        <div className={`dw-pie ${pieRow ? "row" : "col"} ${fullLegend ? "full" : ""}`} ref={pieRef}>
           <div className="dw-pie-chart">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -1996,14 +2033,16 @@ export function PieChartWidget({ widget }: { widget: Widget }) {
           </div>
           <ul className={`dw-pie-legend ${mono ? "mono" : ""}`} ref={legendRef}>
             {(() => {
-              // Самбарт багтах мөрийн тоогоор харуулж, үлдсэнийг «+N бусад» болгоно — гүйлгэхгүй
-              const rows = legendSize.h ? Math.max(1, Math.floor(legendSize.h / PIE_ROW) - (blank ? 1 : 0)) : slices.length;
+              // Самбарт багтах мөрийн тоогоор харуулж, үлдсэнийг «+N бусад» болгоно — гүйлгэхгүй.
+              // fullLegend: бүх утга харагдана, мөрийн өндөр нь самбарт багтахаар багасна
+              const rows = fullLegend || !legendSize.h ? slices.length : Math.max(1, Math.floor(legendSize.h / PIE_ROW) - (blank ? 1 : 0));
               const shown = slices.length > rows ? slices.slice(0, rows - 1) : slices;
               const rest = slices.slice(shown.length);
+              const rowStyle = fullLegend && pieSize.h ? { height: Math.min(PIE_ROW, pieSize.h / slices.length) } : undefined;
               return (
                 <>
                   {shown.map((s) => (
-                    <li key={String(s.x)} onClick={() => s.x !== "__other__" && toggle(s.x)} className={canSelect ? "clickable" : ""}>
+                    <li key={String(s.x)} onClick={() => s.x !== "__other__" && toggle(s.x)} className={canSelect ? "clickable" : ""} style={rowStyle}>
                       <i style={swatch(s.color)} />
                       <span className="name" title={s.label}>
                         {s.label}
@@ -2012,7 +2051,7 @@ export function PieChartWidget({ widget }: { widget: Widget }) {
                         <b title={formatNumber(s.value, widget.valueFormat)}>
                           {Math.abs(Number(s.value)) >= 1e6 ? compact(Number(s.value)) : formatNumber(s.value, widget.valueFormat)}
                         </b>
-                        {legendSize.w >= 190 && ` ${(s.pct * 100).toFixed(1)}%`}
+                        {(fullLegend ? pieSize.w >= 240 : legendSize.w >= 190) && ` ${(s.pct * 100).toFixed(1)}%`}
                       </span>
                     </li>
                   ))}

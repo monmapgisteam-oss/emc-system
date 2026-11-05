@@ -7,7 +7,7 @@ import { PrefsCtx, useDashboard } from "./context";
 import { escapeHtml, formatDate, PALETTE } from "./format";
 import { Panel } from "./widgets";
 import { addBasemapGallery, basemapKeyFor } from "../components/basemaps";
-import type { RuntimeFilter, Widget } from "./types";
+import type { RuntimeFilter, Selection, Widget } from "./types";
 
 // ArcGIS 3D сан том тул зөвхөн 3D нээхэд ачаална
 const Map3D = lazy(() => import("./Map3D"));
@@ -59,6 +59,18 @@ export function guardEarlyMove(fl: esri.FeatureLayer) {
   const grid = fl as unknown as { _cells: object; _activeCells: object };
   grid._cells = {};
   grid._activeCells = {};
+}
+
+/** Анхны харагдацыг тооцоолж дуустал суурь зураг, давхаргыг хүлээх дээд хугацаа */
+const FIRST_VIEW_WAIT_MS = 900;
+
+/** Газрын зураг дээр сонгосон объектыг тодруулна: шүүлтүүр нь бусад виджетэд, зураг өөрөө бүгдийг харуулсаар */
+function paintPicked(fl: esri.FeatureLayer, field: string, selection?: Selection | null) {
+  const on = new Set((selection?.field === field ? selection.values : []).map(String));
+  fl.eachFeature?.((m: L.Layer) => {
+    const lay = m as L.Path & { feature?: { properties: Record<string, unknown> } };
+    lay.getElement?.()?.classList.toggle("dw-map-picked", on.has(String(lay.feature?.properties[field])));
+  });
 }
 
 const stamp = (d: string) => `timestamp '${d.slice(0, 19).replace("T", " ")}'`;
@@ -124,7 +136,7 @@ export function popupHtml(props: Record<string, unknown>, meta: PopupMeta): stri
   const rows = spec
     .filter((f) => !technical.test(f.name) && f.name !== meta.labelField)
     .filter((f) => props[f.name] !== null && props[f.name] !== undefined && String(props[f.name]).trim() !== "")
-    .slice(0, 20)
+    .slice(0, meta.popup?.fields?.length ? undefined : 20) // тохируулсан талбарууд бүгд, тохиргоогүй бол эхний 20
     .map((f) => `<tr><th>${escapeHtml(f.label)}</th><td>${escapeHtml(fmtValue(props[f.name], meta.fields.get(f.name), f.label))}</td></tr>`)
     .join("");
   const body = rows ? `<table class="dw-popup">${rows}</table>` : `<div class="dw-popup-empty">Мэдээлэл бүртгэгдээгүй</div>`;
@@ -458,7 +470,10 @@ export default function MapWidget({ widget }: { widget: Widget }) {
   const colorKey = (layerId: string) => `color:${widget.id}:${layerId}`;
   const sizeKey = (layerId: string) => `size:${widget.id}:${layerId}`;
   const labelKey = (layerId: string) => `label:${widget.id}:${layerId}`;
-  const { filtersFor, geoFor } = useDashboard();
+  const { filtersFor, geoFor, selections, setSelection } = useDashboard();
+  const picked = selections[widget.id];
+  const pickedRef = useRef(picked);
+  pickedRef.current = picked;
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const featureLayers = useRef<Map<string, { layer: esri.FeatureLayer; base?: string | null }>>(new Map());
@@ -494,16 +509,16 @@ export default function MapWidget({ widget }: { widget: Widget }) {
     });
     let cancelled = false;
     let removeGallery: (() => void) | undefined;
+    let showTimer: ReturnType<typeof setTimeout> | undefined;
 
     api
       .webmapLayers<{ layers: MapLayer[]; basemap: string[]; basemap_title: string | null; token: string | null }>(widget.itemId)
       .then(({ layers, basemap, basemap_title, token }) => {
         if (cancelled) return;
         setSource({ layers, token });
-        // Webmap-д тохируулсан Esri суурь зургаар эхэлж, хэрэглэгч gallery-ээс сольж болно
-        removeGallery = addBasemapGallery(map, basemapKeyFor(basemap_title, basemap));
 
         const overlays: Record<string, L.Layer> = {};
+        const visibleLayers: L.Layer[] = [];
         // Анхны харагдац: харагдах давхаргуудын цэг хамгийн их төвлөрсөн хэсэг рүү томруулна
         // Хил (аймаг, сум, стратегийн хил) давхаргыг тооцохгүй — өгөгдлийн давхарга (лиценз, цооног…) руу томруулна
         const extents: Promise<{ items: ExtentItem[]; bounds: L.LatLngBounds | null; boundary: boolean }>[] = [];
@@ -606,6 +621,18 @@ export default function MapWidget({ widget }: { widget: Widget }) {
             fl.bindPopup((l) => popupHtml(((l as L.Layer & { feature?: { properties: Record<string, unknown> } }).feature?.properties) ?? {}, meta), {
               maxWidth: 320,
             });
+            // Объект дээр дарахад бусад виджет шүүгдэнэ. Дахин дарвал сонголт арилна
+            const clickField = widget.clickFields?.[lyr.id];
+            if (clickField) {
+              fl.on("click", (e: L.LeafletMouseEvent) => {
+                const raw = (e.layer as L.Layer & { feature?: { properties: Record<string, unknown> } }).feature?.properties[clickField];
+                if (raw === null || raw === undefined || raw === "") return;
+                const current = pickedRef.current?.field === clickField ? pickedRef.current.values : [];
+                const values = current.includes(raw) ? current.filter((v) => v !== raw) : [...current, raw];
+                setSelection(widget.id, values.length ? { field: clickField, op: "in", values } : null);
+              });
+              fl.on("load", () => paintPicked(fl, clickField, pickedRef.current));
+            }
             // Хулгана очиход объектыг тодруулна
             fl.on("mouseover", (e: L.LeafletMouseEvent) => {
               const t = e.layer as L.Path & { setRadius?: (r: number) => void };
@@ -630,8 +657,11 @@ export default function MapWidget({ widget }: { widget: Widget }) {
               const where = whereOf(lyr.definitionExpression, []);
               extents.push(
                 new Promise((resolve) =>
+                  // Анхны харагдацад зөвхөн байршил хэрэгтэй: талбаруудыг татахгүй
                   fl.query()
                     .where(where)
+                    .fields([])
+                    .precision(5)
                     .limit(2000)
                     .run((err, fc) => {
                       const feats = (!err && (fc as GeoJSON.FeatureCollection | undefined)?.features) || [];
@@ -658,10 +688,23 @@ export default function MapWidget({ widget }: { widget: Widget }) {
           } else {
             layer = esri.imageMapLayer(opts);
           }
-          if (lyr.visible) layer.addTo(map);
+          if (lyr.visible) visibleLayers.push(layer);
           overlays[lyr.title] = layer;
         }
-        if (Object.keys(overlays).length) L.control.layers({}, overlays, { collapsed: true, position: "topright" }).addTo(map);
+        // Анхны байршил тогтоосны дараа л зураг, давхаргаа нэмнэ: эс бөгөөс өөр байршлын tile, объект дэмий татагдаж,
+        // зураг үсэрдэг. Том давхарга удаан байвал хүлээхгүй
+        let shown = false;
+        const show = () => {
+          if (shown || cancelled) return;
+          shown = true;
+          clearTimeout(showTimer);
+          // Webmap-д тохируулсан Esri суурь зургаар эхэлж, хэрэглэгч gallery-ээс сольж болно
+          removeGallery = addBasemapGallery(map, basemapKeyFor(basemap_title, basemap));
+          visibleLayers.forEach((l) => l.addTo(map));
+          if (Object.keys(overlays).length) L.control.layers({}, overlays, { collapsed: true, position: "topright" }).addTo(map);
+          setLoading(false);
+        };
+        showTimer = setTimeout(show, FIRST_VIEW_WAIT_MS);
         Promise.all(extents).then((list) => {
           if (cancelled) return;
           const data = list.some((x) => !x.boundary && (x.items.length || x.bounds)) ? list.filter((x) => !x.boundary) : list;
@@ -669,10 +712,10 @@ export default function MapWidget({ widget }: { widget: Widget }) {
           const target = items.length ? denseBounds(items) : data.find((x) => x.bounds)?.bounds ?? null;
           if (target?.isValid()) {
             home.current = target;
-            map.fitBounds(target, { padding: [24, 24], maxZoom: 17 });
+            map.fitBounds(target, { padding: [24, 24], maxZoom: 17, animate: shown });
           }
+          show();
         });
-        setLoading(false);
       })
       .catch((e: Error) => {
         if (!cancelled) {
@@ -686,6 +729,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
     return () => {
       cancelled = true;
       setSource(null);
+      clearTimeout(showTimer);
       setPickers([]);
       setLegends([]);
       removeGallery?.();
@@ -725,6 +769,14 @@ export default function MapWidget({ widget }: { widget: Widget }) {
     return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geoKey, source]);
+
+  useEffect(() => {
+    for (const [id, { layer }] of featureLayers.current) {
+      const field = widget.clickFields?.[id];
+      if (field) paintPicked(layer, field, picked);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picked]);
 
   // Шүүлтүүр өөрчлөгдөхөд feature давхаргын where-г шинэчилнэ
   useEffect(() => {

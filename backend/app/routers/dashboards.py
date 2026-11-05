@@ -4,7 +4,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -34,6 +35,10 @@ class QueryIn(BaseModel):
     dataset: str = "main"
     filters: list[RuntimeFilter] = []
     sort_desc: str | None = None  # энэ талбараар их нь эхэнд (олон бичлэгтэй давхарга)
+
+
+class BatchIn(BaseModel):
+    queries: list[QueryIn] = Field(max_length=300)
 
 
 def _err(e: arcgis.ArcGISError):
@@ -125,27 +130,60 @@ def _snapshot_def(d: dict):
 
 @router.get("/api/arcgis/dashboards/{item_id}")
 async def dashboard_definition(item_id: str):
+    def load():
+        d = arcgis.dashboard(item_id)
+        if d.get("access") != "public":
+            _snapshot_def(d)
+        return d
+
     try:
-        d = await run_in_threadpool(arcgis.dashboard, item_id)
+        # JSON нь шууд ArcGIS-ээс ирсэн: том тодорхойлолтыг дахин хөрвүүлж цаг алдахгүй
+        return JSONResponse(await run_in_threadpool(load))
     except arcgis.ArcGISError as e:
         raise _err(e)
-    if d.get("access") != "public":
-        _snapshot_def(d)
-    return d
+
+
+def _dataset_of(dash: dict, query: QueryIn) -> dict:
+    widget = arcgis.find_widget(dash, query.widget_id)
+    ds = next((d for d in widget.get("datasets") or [] if d.get("name") == query.dataset), None)
+    if ds is None:
+        raise arcgis.ArcGISError("Виджетийн dataset олдсонгүй", 404)
+    return ds
 
 
 @router.post("/api/arcgis/dashboards/{item_id}/query")
 async def dashboard_query(item_id: str, body: QueryIn):
+    """Нэг виджетийн асуулга. Хуучин frontend (барьсан dist, нээлттэй таб) шинэчлэгдэх хүртэл ажилласаар байна."""
+
     def run():
-        dash = arcgis.dashboard(item_id)
-        widget = arcgis.find_widget(dash, body.widget_id)
-        ds = next((d for d in widget.get("datasets") or [] if d.get("name") == body.dataset), None)
-        if ds is None:
-            raise arcgis.ArcGISError("Виджетийн dataset олдсонгүй", 404)
+        ds = _dataset_of(arcgis.dashboard(item_id), body)
         return arcgis.run_dataset(ds, [f.model_dump() for f in body.filters], body.sort_desc)
 
     try:
-        return await run_in_threadpool(run)
+        return JSONResponse(await run_in_threadpool(run))
+    except arcgis.ArcGISError as e:
+        raise _err(e)
+
+
+@router.post("/api/arcgis/dashboards/{item_id}/query-batch")
+async def dashboard_query_batch(item_id: str, body: BatchIn):
+    """Нэг дор гарсан виджетүүдийн асуулга нэг хүсэлтээр: хөтчийн зэрэг хүсэлтийн хязгаарт зогсохгүй."""
+
+    def run():
+        dash = arcgis.dashboard(item_id)
+        results: list = [None] * len(body.queries)
+        valid = []
+        for i, query in enumerate(body.queries):
+            try:
+                valid.append((i, (_dataset_of(dash, query), [f.model_dump() for f in query.filters], query.sort_desc)))
+            except arcgis.ArcGISError as e:
+                results[i] = e
+        for (i, _), result in zip(valid, arcgis.run_datasets([q for _, q in valid])):
+            results[i] = result
+        return {"results": [{"error": str(r), "status": r.code} if isinstance(r, arcgis.ArcGISError) else r for r in results]}
+
+    try:
+        return JSONResponse(await run_in_threadpool(run))
     except arcgis.ArcGISError as e:
         raise _err(e)
 

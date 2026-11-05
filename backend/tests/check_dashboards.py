@@ -19,16 +19,18 @@ def check(item_id: str) -> tuple[str, collections.Counter, list[str]]:
     except arcgis.ArcGISError as e:
         stats["locked" if e.code == 403 else "error"] += 1
         return item_id, stats, [] if e.code == 403 else [str(e)]
-    for w in dash["widgets"] + ((dash.get("header") or {}).get("selectors") or []):
-        for ds in w.get("datasets") or []:
-            try:
-                arcgis.run_dataset(ds, [])
-                stats["ok"] += 1
-            except arcgis.ArcGISError as e:
-                key = "locked" if e.code == 403 else "error"
-                stats[key] += 1
-                if key == "error":
-                    errors.append(f"{w['type']}: {e}")
+    widgets = dash["widgets"] + ((dash.get("header") or {}).get("selectors") or [])
+    # Хөтөч ашигладаг замаар: нэгтгэсэн асуулга ч шалгагдана
+    queries = [(w, ds) for w in widgets for ds in w.get("datasets") or []]
+    for (w, _), result in zip(queries, arcgis.run_datasets([(ds, [], None) for _, ds in queries])):
+        if isinstance(result, arcgis.ArcGISError):
+            key = "locked" if result.code == 403 else "error"
+            stats[key] += 1
+            if key == "error":
+                errors.append(f"{w['type']}: {result}")
+        else:
+            stats["ok"] += 1
+    for w in widgets:
         if w["type"] == "mapWidget" and w.get("itemId"):
             try:
                 arcgis.map_layers(w["itemId"])
@@ -38,7 +40,7 @@ def check(item_id: str) -> tuple[str, collections.Counter, list[str]]:
     return item_id, stats, errors
 
 
-items = [(d["code"], i, t) for d in DEPARTMENTS for i, t, _ in d["dashboards"]]
+items = [(d["code"], t[0], t[1]) for d in DEPARTMENTS for t in d["dashboards"]]
 with ThreadPoolExecutor(6) as pool:
     results = {r[0]: r for r in pool.map(check, [i for _, i, _ in items])}
 

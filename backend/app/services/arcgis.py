@@ -12,21 +12,40 @@ import os
 import re
 import threading
 import time
-from contextvars import ContextVar
+from concurrent.futures import ThreadPoolExecutor, wait
+from contextvars import ContextVar, copy_context
 from datetime import datetime, timezone
 
 import httpx
-from app.services import dashboard_extras
+from app.services import dashboard_extras, plant_dashboards
 
 PORTAL = os.getenv("EMC_ARCGIS_PORTAL", "https://www.arcgis.com").rstrip("/")
 ITEM_TTL = 600  # dashboard, webmap, давхаргын тодорхойлолт — 10 мин
+ITEM_STALE = 24 * 3600  # хугацаа нь дууссан тодорхойлолтыг энэ хугацаанд хуучнаар нь өгч, ард нь шинэчилнэ
 QUERY_TTL = 120  # статистик асуулга — 2 мин
 MAX_FEATURES = 2000
+MAX_CACHE = 20000  # шүүлтүүрийн хослол бүр хадгалагддаг: хязгааргүй өсөхгүй
+MAX_BUILT = 256  # хэрэглэгч × dashboard: бүрэн тодорхойлолтын хуулбар тул тусад нь хязгаарлана
 
 _cache: dict[str, tuple[float, object]] = {}
+_built: dict[tuple[str, str], tuple] = {}  # (хэрэглэгч, dashboard) → (item, data, бэлэн тодорхойлолт)
+_refreshing: set[str] = set()
 _lock = threading.Lock()
 _token: dict = {"value": os.getenv("EMC_ARCGIS_TOKEN") or None, "expires": float("inf")}
-_client = httpx.Client(timeout=40, follow_redirects=True)
+# ArcGIS холболтыг 60 сек орчим барьдаг. Анхдагч 5 сек нь шүүлтүүр дарах бүрт шинэ TLS холболт (+0.5 сек) нээлгэдэг
+_client = httpx.Client(timeout=40, follow_redirects=True, limits=httpx.Limits(max_keepalive_connections=32, max_connections=64, keepalive_expiry=60))
+_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="arcgis")
+# Өгөгдлийн асуулга тусдаа: удаан давхарга кэшээс тодорхойлолт уншихыг дараалалд зогсоохгүй
+_query_pool = ThreadPoolExecutor(max_workers=16, thread_name_prefix="arcgis-query")
+
+
+def _submit(fn, *args):
+    """ArcGIS хүсэлтийг зэрэгцүүлнэ. Нэвтэрсэн хэрэглэгчийн token (ContextVar) thread руу дамжина."""
+    return _pool.submit(copy_context().run, fn, *args)
+
+
+def _submit_query(fn, *args):
+    return _query_pool.submit(copy_context().run, fn, *args)
 
 
 class ArcGISError(Exception):
@@ -90,6 +109,14 @@ def token() -> str | None:
     return r["token"]
 
 
+def _put(key: str, value) -> None:
+    with _lock:
+        _cache[key] = (time.time(), value)
+        if len(_cache) > MAX_CACHE:
+            for old in sorted(_cache, key=lambda k: _cache[k][0])[: MAX_CACHE // 2]:
+                del _cache[old]
+
+
 def _cached(key: str, ttl: int, fn):
     # Хэрэглэгч бүрийн эрх өөр тул кэшийг хэрэглэгчээр тусгаарлана
     key = f"{_scope()}|{key}"
@@ -99,8 +126,43 @@ def _cached(key: str, ttl: int, fn):
         if hit and now - hit[0] < ttl:
             return hit[1]
     value = fn()
+    _put(key, value)
+    return value
+
+
+def _cached_item(key: str, fn):
+    """Тодорхойлолт ховор өөрчлөгддөг: хугацаа нь дууссан бол хуучнаар шууд хариулж, ард нь шинэчилнэ."""
+    key = f"{_scope()}|{key}"
+    now = time.time()
     with _lock:
-        _cache[key] = (now, value)
+        hit = _cache.get(key)
+        if hit and now - hit[0] < ITEM_TTL:
+            return hit[1]
+        stale = bool(hit) and now - hit[0] < ITEM_STALE
+        start_refresh = stale and key not in _refreshing
+        if start_refresh:
+            _refreshing.add(key)
+
+    def refresh():
+        try:
+            _put(key, fn())
+        except ArcGISError as e:
+            # Устсан эсвэл эрх нь хасагдсан бол хуучнаар нь цааш өгөхгүй
+            if e.code in (401, 403, 404):
+                with _lock:
+                    _cache.pop(key, None)
+        except (httpx.HTTPError, ValueError):
+            pass  # сүлжээний түр алдаа: дараагийн удаа дахин оролдоно
+        finally:
+            with _lock:
+                _refreshing.discard(key)
+
+    if stale:
+        if start_refresh:
+            _submit(refresh)
+        return hit[1]
+    value = fn()
+    _put(key, value)
     return value
 
 
@@ -123,27 +185,29 @@ def _request(url: str, params: dict, method: str = "GET") -> dict:
         detail = json.dumps(err, ensure_ascii=False).lower()
         if code in (403, 498, 499) or "permission" in detail or "not authorized" in detail:
             raise ArcGISError("Энэ item хаалттай. ArcGIS нэвтрэх эрх тохируулна уу.", 403)
+        # ArcGIS устсан item-д 400 буцаадаг: хүсэлт буруу биш, item алга
+        if err.get("messageCode") == "CONT_0001":
+            raise ArcGISError(err.get("message") or "Item олдсонгүй", 404)
         raise ArcGISError(err.get("message") or "ArcGIS алдаа", code)
     return data
 
 
 def item(item_id: str) -> dict:
-    return _cached(f"item:{item_id}", ITEM_TTL, lambda: _request(f"{PORTAL}/sharing/rest/content/items/{item_id}", {}))
+    return _cached_item(f"item:{item_id}", lambda: _request(f"{PORTAL}/sharing/rest/content/items/{item_id}", {}))
 
 
 def item_data(item_id: str) -> dict:
-    return _cached(
-        f"data:{item_id}", ITEM_TTL, lambda: _request(f"{PORTAL}/sharing/rest/content/items/{item_id}/data", {})
-    )
+    return _cached_item(f"data:{item_id}", lambda: _request(f"{PORTAL}/sharing/rest/content/items/{item_id}/data", {}))
 
 
 def layer_info(url: str) -> dict:
-    return _cached(f"layer:{url}", ITEM_TTL, lambda: _request(url, {}))
+    return _cached_item(f"layer:{url}", lambda: _request(url, {}))
 
 
 def clear_cache():
     with _lock:
         _cache.clear()
+        _built.clear()
 
 
 # ---------------------------------------------------------------- dashboard
@@ -151,12 +215,23 @@ def clear_cache():
 
 def dashboard(item_id: str) -> dict:
     """Dashboard-ын тодорхойлолт: header, layout, виджетүүд (desktop view)."""
-    meta = item(item_id)
+    built = plant_dashboards.get(item_id)
+    if built:
+        return built
+    meta_future, data_future = _submit(item, item_id), _submit(item_data, item_id)
+    meta = meta_future.result()
     if meta.get("type") != "Dashboard":
         raise ArcGISError(f"Энэ item dashboard биш ({meta.get('type')})", 400)
-    data = item_data(item_id)
+    data = data_future.result()
+    # Шүүлтүүр дарах бүрт дуудагддаг: том тодорхойлолтыг дахин боловсруулахгүй. item, data тус тусдаа шинэчлэгддэг тул
+    # `modified`-оор түлхүүрлэвэл шинэ огноотой хуучин виджетүүд кэшлэгдэж болно: яг тэр объектуудаас бүтсэн эсэхийг шалгана
+    key = (_scope(), item_id)
+    with _lock:
+        hit = _built.get(key)
+    if hit and hit[0] is meta and hit[1] is data:
+        return hit[2]
     view = data.get("desktopView") or data
-    return dashboard_extras.apply({
+    ready = dashboard_extras.apply({
         "id": item_id,
         "title": meta.get("title"),
         "modified": meta.get("modified"),
@@ -167,6 +242,11 @@ def dashboard(item_id: str) -> dict:
         "layout": (view.get("layout") or {}).get("rootElement"),
         "widgets": view.get("widgets") or data.get("widgets") or [],
     })
+    with _lock:
+        _built[key] = (meta, data, ready)
+        while len(_built) > MAX_BUILT:
+            del _built[next(iter(_built))]
+    return ready
 
 
 def find_widget(dash: dict, widget_id: str) -> dict:
@@ -198,6 +278,9 @@ def webmap_layers(webmap_id: str) -> dict:
 
 def resolve_source(source: dict) -> dict:
     """layerDataSource → {url, definitionExpression, title}."""
+    # Систем дотор бүрдсэн dashboard: давхаргын хаяг шууд заагдсан
+    if source.get("url"):
+        return {"url": source["url"], "definitionExpression": source.get("where"), "title": source.get("title")}
     item_id, layer_id = source.get("itemId"), source.get("layerId")
     if not item_id:
         raise ArcGISError("Өгөгдлийн эх үүсвэр тодорхойгүй", 400)
@@ -332,17 +415,21 @@ def runtime_filter_to_sql(flt: dict, field_types: dict[str, str]) -> str | None:
 # ---------------------------------------------------------------- query
 
 
-def run_dataset(ds: dict, runtime_filters: list[dict], sort_desc: str | None = None) -> dict:
-    if ds.get("type") == "staticDataset":
-        data = ds.get("data") or {}
-        return {"rows": data.get("rows") or data.get("features") or [], "fields": data.get("fields") or []}
+def _static_result(ds: dict) -> dict:
+    data = ds.get("data") or {}
+    return {"rows": data.get("rows") or data.get("features") or [], "fields": data.get("fields") or []}
 
+
+def _plan(ds: dict, runtime_filters: list[dict], sort_desc: str | None = None) -> dict:
+    """Dataset-ийг ArcGIS асуулга болгоно: давхарга, нөхцөл, статистик, кэшийн түлхүүр."""
     src = resolve_source(ds.get("dataSource") or {})
     fields = fields_of(src["url"])
     types = {f["name"]: f["type"] for f in fields}
 
     where = [w for w in (src.get("definitionExpression"), filter_to_sql(ds.get("filter"))) if w]
-    where += [w for w in (runtime_filter_to_sql(f, types) for f in runtime_filters) if w]
+    # Шүүлтүүрийн талбаргүй давхарга: ArcGIS 400 буцаахын оронд энэ шүүлтүүрийг алгасна (өөр давхаргын виджетээс ирсэн)
+    known_filters = [f for f in runtime_filters if not types or f["field"] in types]
+    where += [w for w in (runtime_filter_to_sql(f, types) for f in known_filters) if w]
     params: dict = {"where": " AND ".join(f"({w})" for w in where) or "1=1", "returnGeometry": "false"}
 
     stats = ds.get("statisticDefinitions") or []
@@ -369,26 +456,186 @@ def run_dataset(ds: dict, runtime_filters: list[dict], sort_desc: str | None = N
         order_by = [f"{_ident(sort_desc)} DESC"]
     if order_by:
         params["orderByFields"] = ",".join(order_by)
+    return {
+        "url": src["url"],
+        "params": params,
+        "fields": fields,
+        "layer": src.get("title"),
+        "stats": stats,
+        "group_by": group_by,
+        "order_by": order_by,
+        "ignored_filters": len(runtime_filters) - len(known_filters),
+        "key": f"q:{src['url']}:{json.dumps(params, sort_keys=True, ensure_ascii=False)}",
+    }
 
-    key = f"q:{src['url']}:{json.dumps(params, sort_keys=True, ensure_ascii=False)}"
 
-    def fetch():
-        try:
-            res = _request(f"{src['url']}/query", params, method="POST")
-        except ArcGISError:
-            if "orderByFields" not in params:
-                raise
-            # Зарим service статистиктай orderBy-г дэмждэггүй — эрэмбэгүйгээр дахин оролдоно
-            res = _request(f"{src['url']}/query", {k: v for k, v in params.items() if k != "orderByFields"}, "POST")
-        return {"rows": [f.get("attributes", {}) for f in res.get("features") or []], "more": bool(res.get("exceededTransferLimit"))}
+def _fetch(plan: dict) -> dict:
+    params = plan["params"]
+    try:
+        res = _request(f"{plan['url']}/query", params, method="POST")
+    except ArcGISError:
+        if "orderByFields" not in params:
+            raise
+        # Зарим service статистиктай orderBy-г дэмждэггүй — эрэмбэгүйгээр дахин оролдоно
+        res = _request(f"{plan['url']}/query", {k: v for k, v in params.items() if k != "orderByFields"}, "POST")
+    return {"rows": [f.get("attributes", {}) for f in res.get("features") or []], "more": bool(res.get("exceededTransferLimit"))}
 
-    got = _cached(key, QUERY_TTL, fetch)
+
+def _result(plan: dict, got: dict) -> dict:
     total = None
     if got["more"]:
         # Хязгаараас хэтэрсэн — нийт тоог тусад нь асууна
-        cnt = _cached(f"c:{key}", QUERY_TTL, lambda: _request(f"{src['url']}/query", {"where": params["where"], "returnCountOnly": "true"}, "POST"))
+        where = plan["params"]["where"]
+        cnt = _cached(f"c:{plan['key']}", QUERY_TTL, lambda: _request(f"{plan['url']}/query", {"where": where, "returnCountOnly": "true"}, "POST"))
         total = cnt.get("count")
-    return {"rows": got["rows"], "fields": fields, "layer": src.get("title"), "total": total}
+    return {"rows": got["rows"], "fields": plan["fields"], "layer": plan["layer"], "total": total, "ignored_filters": plan["ignored_filters"]}
+
+
+def run_dataset(ds: dict, runtime_filters: list[dict], sort_desc: str | None = None) -> dict:
+    if ds.get("type") == "staticDataset":
+        return _static_result(ds)
+    plan = _plan(ds, runtime_filters, sort_desc)
+    return _result(plan, _cached(plan["key"], QUERY_TTL, lambda: _fetch(plan)))
+
+
+STAT_KEYS = ("statisticType", "onStatisticField", "statisticParameters")
+
+
+def _merge_key(plan: dict) -> tuple | None:
+    """Ижил нөхцөл, бүлэглэлттэй статистикууд нэг асуулгад багтана. Статистикийн утгаар эрэмбэлсэн бол салангид."""
+    if not plan["stats"] or any((o.split() or [""])[0] not in plan["group_by"] for o in plan["order_by"]):
+        return None
+    return (plan["url"], plan["params"]["where"], tuple(plan["group_by"]), tuple(plan["order_by"]))
+
+
+def _stat_id(stat: dict) -> str:
+    return json.dumps([stat.get(k) for k in STAT_KEYS], ensure_ascii=False, sort_keys=True)
+
+
+def _fetch_merged(plans: list[dict]) -> dict[str, dict]:
+    """Олон статистикийг нэг ArcGIS асуулгаар авч, виджет бүрийн гаралтын нэрээр буцааж хуваарилна."""
+    aliases: dict[str, str] = {}
+    definitions = []
+    # Виджетүүд гаралтын нэрээ давхцуулж болно (кирилл талбар бүгд AVG___ болдог) тул өөрийн нэрээр асууна
+    for s in (s for plan in plans for s in plan["stats"]):
+        if _stat_id(s) not in aliases:
+            aliases[_stat_id(s)] = f"emc_s{len(aliases)}"
+            definitions.append({**{k: s[k] for k in STAT_KEYS if k in s}, "outStatisticFieldName": aliases[_stat_id(s)]})
+    params = {**plans[0]["params"], "outStatistics": json.dumps(definitions, ensure_ascii=False)}
+    res = _request(f"{plans[0]['url']}/query", params, method="POST")
+    rows = [f.get("attributes", {}) for f in res.get("features") or []]
+    used = set(aliases.values())
+    if rows and not used <= rows[0].keys():
+        raise ArcGISError("ArcGIS нэгтгэсэн статистикийг буцаасангүй", 502)
+    return {
+        plan["key"]: {
+            "rows": [
+                {**{k: v for k, v in row.items() if k not in used}, **{s["outStatisticFieldName"]: row[aliases[_stat_id(s)]] for s in plan["stats"]}}
+                for row in rows
+            ],
+            "more": bool(res.get("exceededTransferLimit")),
+        }
+        for plan in plans
+    }
+
+
+def _as_error(e: BaseException) -> ArcGISError:
+    return e if isinstance(e, ArcGISError) else ArcGISError(f"Өгөгдөл авч чадсангүй: {e}", 502)
+
+
+def _warm_item(item_id: str) -> None:
+    if item(item_id).get("type") == "Web Map":
+        item_data(item_id)
+
+
+def _warm_source(source: dict) -> None:
+    fields_of(resolve_source(source)["url"])
+
+
+def _source_key(ds: dict) -> str:
+    return json.dumps(ds.get("dataSource") or {}, sort_keys=True)
+
+
+def _warm_sources(datasets: list[dict]) -> dict[str, ArcGISError]:
+    """Давхаргын тодорхойлолтыг зэрэг татна: дараа нь асуулга бүр кэшээс уншина.
+
+    Хаалттай, хариу өгөхгүй эх үүсвэрийг буцаана: виджет бүр нэг нэгээр дахин асууж, бүх хүсэлтийг хүлээлгэхгүй.
+    """
+    sources = {_source_key(ds): ds.get("dataSource") or {} for ds in datasets}
+    wait([_submit(_warm_item, i) for i in {s["itemId"] for s in sources.values() if s.get("itemId") and not s.get("url")}])
+    futures = {key: _submit(_warm_source, source) for key, source in sources.items()}
+    wait(futures.values())
+    return {key: _as_error(future.exception()) for key, future in futures.items() if future.exception()}
+
+
+def run_datasets(queries: list[tuple[dict, list[dict], str | None]]) -> list[dict | ArcGISError]:
+    """Нэг dashboard-ын олон виджетийн асуулга: (dataset, шүүлтүүр, эрэмбэ) → үр дүн эсвэл алдаа, ижил дарааллаар.
+
+    Кэшид байгааг шууд авч, үлдсэнийг ижил нөхцөлөөр нэгтгэн зэрэг асууна. Нэг виджетийн алдаа бусдад нөлөөлөхгүй.
+    """
+    failed_sources = _warm_sources([ds for ds, _, _ in queries if ds.get("type") != "staticDataset"])
+    plans: list[dict | ArcGISError | None] = []
+    for ds, filters, sort_desc in queries:
+        if ds.get("type") == "staticDataset":
+            plans.append(None)
+        elif _source_key(ds) in failed_sources:
+            plans.append(failed_sources[_source_key(ds)])
+        else:
+            try:
+                plans.append(_plan(ds, filters, sort_desc))
+            except Exception as e:
+                plans.append(_as_error(e))
+
+    now = time.time()
+    fetched: dict[str, dict | ArcGISError] = {}
+    groups: dict[object, dict[str, dict]] = {}
+    for plan in plans:
+        if not isinstance(plan, dict) or plan["key"] in fetched:
+            continue
+        with _lock:
+            hit = _cache.get(f"{_scope()}|{plan['key']}")
+        if hit and now - hit[0] < QUERY_TTL:
+            fetched[plan["key"]] = hit[1]
+        else:
+            groups.setdefault(_merge_key(plan) or plan["key"], {})[plan["key"]] = plan
+
+    def keep(key: str, got: dict) -> None:
+        fetched[key] = got
+        _put(f"{_scope()}|{key}", got)
+
+    pending = [(plan, _submit_query(_fetch, plan)) for group in groups.values() if len(group) == 1 for plan in group.values()]
+    merged = [(list(group.values()), _submit_query(_fetch_merged, list(group.values()))) for group in groups.values() if len(group) > 1]
+    for group, future in merged:
+        try:
+            for key, got in future.result().items():
+                keep(key, got)
+        except httpx.TimeoutException as e:
+            # Давхарга хариу өгөхгүй: дахин асуувал дахин хүлээлгэнэ
+            for plan in group:
+                fetched[plan["key"]] = _as_error(e)
+        except Exception:
+            # Нэг талбар буруу г.м.: тус тусад нь зэрэг асууж, зөвхөн алдаатай виджет нь алдаа харуулна
+            pending.extend((plan, _submit_query(_fetch, plan)) for plan in group)
+    for plan, future in pending:
+        try:
+            keep(plan["key"], future.result())
+        except Exception as e:
+            fetched[plan["key"]] = _as_error(e)
+
+    results: list[dict | ArcGISError] = []
+    for (ds, _, _), plan in zip(queries, plans):
+        if plan is None:
+            results.append(_static_result(ds))
+        elif isinstance(plan, ArcGISError):
+            results.append(plan)
+        elif isinstance(fetched[plan["key"]], ArcGISError):
+            results.append(fetched[plan["key"]])
+        else:
+            try:
+                results.append(_result(plan, fetched[plan["key"]]))
+            except Exception as e:
+                results.append(_as_error(e))
+    return results
 
 
 def _cim_color(c) -> list | None:
@@ -531,6 +778,9 @@ def _layer_out(lyr: dict) -> dict | None:
 
 def map_layers(webmap_id: str) -> dict:
     """Map виджетэд зориулж webmap-ын давхаргуудыг хавтгай жагсаалтаар."""
+    built = plant_dashboards.map_layers(webmap_id)
+    if built:
+        return {"layers": built, "basemap": [], "basemap_title": None, "token": token()}
     wm = webmap_layers(webmap_id)
     layers = [out for out in map(_layer_out, wm["operational"]) if out]
     base = [b.get("url") for b in wm["basemap"] if b.get("url")]

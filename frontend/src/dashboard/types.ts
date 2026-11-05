@@ -54,6 +54,8 @@ export type Widget = {
   datasets?: Dataset[];
   events?: WidgetEvent[];
   itemId?: string;
+  /** Газрын зураг: давхарга бүрт объект дээр дарахад шүүх талбар */
+  clickFields?: Record<string, string>;
   // indicator
   defaultSettings?: {
     topSection?: { textInfo?: { text?: string } };
@@ -61,6 +63,7 @@ export type Widget = {
     bottomSection?: { textInfo?: { text?: string } };
   };
   valueFormat?: NumberFormat;
+  labelFormat?: NumberFormat;
   valueType?: string;
   valueConversion?: { factor?: number; offset?: number };
   icon?: string; // тооны өмнөх дүрс; байвал тоо жижиг
@@ -89,6 +92,10 @@ export type Widget = {
     remainder?: { key: string; total: string; parts: string[] }; // нийт дүнгээс хэсгүүдэд задраагүй үлдэгдэл
     valueDigits?: number; // тэнхлэг, шошгын аравтын орон (маш бага утгад)
     splitColors?: Record<string, string>; // splitBy: утга бүрийн тогтмол өнгө; бүгд зурагдаж, нэрээр эрэмбэлэгдэнэ
+    legendLines?: number; // тайлбарын дээд мөр (олон цуваатай график)
+    segmentLabels?: boolean; // давхарласан баганын хэсэг бүрийн дотор утга, доор нь тоон тэнхлэг
+    fullLegend?: boolean; // дугуй: тайлбар үргэлж баруун талд, бүх утга нэг бүрчлэн харагдана
+    splitOrder?: string[]; // цувааны тогтмол дараалал
     plainLines?: boolean; // олон шугамтай: дүүргэлтгүй, төгсгөлийн тоогүй, тайлбар бүтэн
     allRows?: boolean; // хэвтээ багана: бүх мөрийг гүйлгэж харуулна, их утгатайгаар таслахгүй
     tightBars?: boolean; // хэвтээ багана: 0 биш утгын мужаас эхэлнэ (өндөршил зэрэг)
@@ -147,6 +154,7 @@ export type LayoutElement = {
   orientation?: "row" | "col";
   tabName?: string;
   tabLabel?: string; // табын товчны богино нэр; гарчиг, tooltip нь tabName-аар
+  keepSizes?: boolean; // автомат дүрэм биш, энд заасан width/height-аар
   elements?: LayoutElement[];
 };
 
@@ -155,6 +163,7 @@ export type DashboardDef = {
   title: string;
   modified?: number;
   access?: string;
+  theme?: string; // загварын нэр: .dw-<theme>
   header?: { title?: string; selectors?: Widget[] };
   leftPanel?: { title?: string; selectors?: Widget[] };
   layout?: LayoutElement;
@@ -163,7 +172,7 @@ export type DashboardDef = {
 
 export type Field = { name: string; alias: string; type: string; domain: Record<string, string> | null };
 
-export type QueryResult = { rows: Record<string, unknown>[]; fields: Field[]; layer?: string; total?: number | null };
+export type QueryResult = { rows: Record<string, unknown>[]; fields: Field[]; layer?: string; total?: number | null; ignored_filters?: number };
 
 export type RuntimeFilter = { field: string; op: "in" | "between" | "contains"; values: unknown[] };
 

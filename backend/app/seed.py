@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from .database import Base, SessionLocal, engine
 from .models import ArcgisDashboard, Department, Measurement, MonitoringPoint
+from .services.plant_dashboards import PLANT_AIR, PLANT_WATER
 
 MAPVIEWER = "https://erdenetmining.maps.arcgis.com/apps/mapviewer/index.html?webmap="
 EXPERIENCE = "https://experience.arcgis.com/experience/"
@@ -20,6 +21,10 @@ SCENE = "https://erdenetmining.maps.arcgis.com/home/webscene/viewer.html?webscen
 
 DRILL_REPORT = "Өрөмдлөгийн тайлан"
 WATER_BALANCE = "Усны баланс"
+# Цагаан тоос, Хүрээлэн буй орчин болж хуваагдсан
+RETIRED_GROUPS = {"Хяналт шинжилгээ": "Хүрээлэн буй орчин"}  # хуучин нэр → шинэ бүлэг
+# Хэлтэс үүссэний дараа нэмэгдсэн dashboard-ууд: хуучин өгөгдлийн санг шилжүүлэхэд нэг удаа орно
+ADDED_DASHBOARDS = {PLANT_WATER, PLANT_AIR}
 
 # Хэлтсүүд — «EMC united HUB»-ын «Нэгдсэн систем» цэсийн дарааллаар. Код нь URL-д хэрэглэгдэнэ.
 # Өнгө нь бараан дэвсгэр дээр шалгагдсан ангиллын палитрын 1–7 дахь слот, дарааллаар нь.
@@ -78,10 +83,12 @@ DEPARTMENTS = [
         "description": "Нөхөн сэргээлт, хөрс, ус, агаар, цагаан тоос, модны бүртгэл",
         "links": [],
         "dashboards": [
-            ("2fc14c08d9994d64aa7a3ae0beeb5ac7", "Цагаан тоос 2013-2025", "Хяналт шинжилгээ"),
-            ("a61b6ca8b88c4c7db3dfb3305d4168f0", "Хөрс", "Хяналт шинжилгээ"),
-            ("3b0fe193e4d64909a00e12887494531f", "Ус", "Хяналт шинжилгээ"),
-            ("55e91e367ac0480c8e0f4d4abd94f817", "Агаар", "Хяналт шинжилгээ"),
+            ("2fc14c08d9994d64aa7a3ae0beeb5ac7", "Цагаан тоос 2013-2025", "Цагаан тоос"),
+            ("3b0fe193e4d64909a00e12887494531f", "Ус", "Хүрээлэн буй орчин"),
+            ("a61b6ca8b88c4c7db3dfb3305d4168f0", "Хөрс", "Хүрээлэн буй орчин"),
+            ("55e91e367ac0480c8e0f4d4abd94f817", "Агаар", "Хүрээлэн буй орчин"),
+            (PLANT_WATER, "Ус", "Баяжуулах үйлдвэр"),
+            (PLANT_AIR, "Агаар", "Баяжуулах үйлдвэр"),
             ("41e720a94df34af4a2914a5867a150df", "Нөхөн сэргээлт", "Ногоон төгөл"),
             ("743b66104ae6488b9c78dbb06cb74de9", "Ногоон төгөл", "Ногоон төгөл"),
             ("25408bc53b2142ec91ca41b0720f644c", "Нэгдсэн модны бүртгэл", "Ногоон төгөл"),
@@ -139,6 +146,33 @@ def apply_sections(db) -> None:
                 continue
             for row in db.scalars(select(ArcgisDashboard).where(ArcgisDashboard.item_id == t[0], ArcgisDashboard.section.is_(None))):
                 row.title, row.section, row.sort_order = t[1], t[3], j
+    db.commit()
+
+
+def apply_groups(db) -> None:
+    """Хуучин өгөгдлийн сан: хуучин бүлгийн dashboard-ыг шинэ бүлэгт шилжүүлж, шинээр нэмэгдсэнийг оруулна.
+
+    Үндсэн dashboard хуучин бүлэгт үлдсэн үед л ажиллана: дараа нь админ устгасан dashboard буцаж гарч ирэхгүй,
+    дараалал хөндөгдөхгүй. Шилжилтийн дараа админ хуучин нэрээр бүлэг үүсгэсэн ч дахин ажиллахгүй.
+    """
+    for d in DEPARTMENTS:
+        dep = db.scalar(select(Department).where(Department.code == d["code"]))
+        seeded = {t[0] for t in d["dashboards"]}
+        if not dep or not any(row.group in RETIRED_GROUPS and row.item_id in seeded for row in dep.dashboards):
+            continue
+        rows = {row.item_id: row for row in dep.dashboards}
+        for j, t in enumerate(d["dashboards"]):
+            row = rows.get(t[0])
+            if row:
+                row.sort_order = j
+                if row.group in RETIRED_GROUPS:
+                    row.group = t[2]
+            elif t[0] in ADDED_DASHBOARDS:
+                dep.dashboards.append(ArcgisDashboard(item_id=t[0], title=t[1], group=t[2], sort_order=j))
+        # API-аар нэмсэн dashboard араас нь, хуучин бүлэгт дангаараа үлдэхгүй
+        for i, row in enumerate(r for r in rows.values() if r.item_id not in seeded):
+            row.sort_order = len(d["dashboards"]) + i
+            row.group = RETIRED_GROUPS.get(row.group, row.group)
     db.commit()
 
 
