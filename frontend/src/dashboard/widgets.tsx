@@ -129,11 +129,16 @@ function categoryLabel(w: Widget, raw: unknown, field?: Field): string {
 function useCategorySelection(widget: Widget, field: string | undefined) {
   const { selections, setSelection } = useDashboard();
   const sel = selections[widget.id];
-  const selected = new Set((sel?.values ?? []).map((v) => String(v)));
-  const canSelect = Boolean(field && widget.events?.length);
+  const selected = new Set((sel?.shown ?? sel?.values ?? []).map((v) => String(v)));
+  const canSelect = Boolean(field);
   const toggle = (raw: unknown) => {
     if (!canSelect || !field) return;
     const key = String(raw);
+    // Онд нэгтгэсэн огноо: дарсан оны бүх огноог шүүнэ
+    if (widget.chartConfig?.yearBin) {
+      setSelection(widget.id, selected.has(key) ? null : { field, op: "between", values: [`${key}-01-01T00:00:00`, `${key}-12-31T23:59:59`], shown: [raw] });
+      return;
+    }
     const values = selected.has(key)
       ? (sel?.values ?? []).filter((v) => String(v) !== key)
       : [...(sel?.values ?? []), raw];
@@ -320,6 +325,43 @@ function CatTick(props: { x?: number; y?: number; payload?: { value: unknown }; 
     <text x={x - 4} y={y} textAnchor="end" dominantBaseline="middle" fontSize={fontSize} fill="var(--text-muted)">
       <title>{full}</title>
       {text}
+    </text>
+  );
+}
+
+/** Нэрийг үгээр хуваана; «ТПП100*2*0.5» зэрэг зайгүй урт кодыг «*»-оор */
+function labelTokens(label: string, maxChars: number): string[] {
+  return label
+    .split(/\s+/)
+    .filter(Boolean)
+    .flatMap((word) => {
+      const star = word.indexOf("*");
+      return word.length > maxChars && star > 0 ? [word.slice(0, star), word.slice(star)] : [word];
+    });
+}
+
+const WRAP_CHAR = 0.56; // нэг тэмдэгтийн ойролцоо өргөн, үсгийн хэмжээний хувиар
+const WRAP_AXIS_H = 56; // 4 мөр шошгоны тэнхлэгийн өндөр: графикуудын суурь нэг түвшинд
+
+/** Босоо баганын хэвтээ нэр: баганын өргөнд багтаан мөрөөр хуваана */
+function WrapTick(props: { x?: number; y?: number; payload?: { value: unknown }; width: number; fontSize: number }) {
+  const { x = 0, y = 0, payload, width, fontSize } = props;
+  const full = String(payload?.value ?? "");
+  const maxChars = Math.floor(width / (fontSize * WRAP_CHAR));
+  const lines: string[] = [];
+  for (const token of labelTokens(full, maxChars)) {
+    const last = lines[lines.length - 1];
+    if (last !== undefined && last.length + 1 + token.length <= maxChars) lines[lines.length - 1] = `${last} ${token}`;
+    else lines.push(token);
+  }
+  return (
+    <text className="recharts-cartesian-axis-tick-value" y={y + 3} textAnchor="middle" fontSize={fontSize} fill="var(--text-secondary)">
+      <title>{full}</title>
+      {lines.map((line, i) => (
+        <tspan key={i} x={x} dy={i ? fontSize + 2 : fontSize}>
+          {line}
+        </tspan>
+      ))}
     </text>
   );
 }
@@ -673,7 +715,7 @@ function SerialChart({ widget }: { widget: Widget }) {
   const cutCount = sortedRows.length - rows.length;
   // Хэвтээ баганыг картын өндөрт тааруулна: мөр өндөр бол багана ч бага зэрэг зузаарна (14–26px)
   const rowSpace = horizontal && area.h && rows.length ? Math.min(ROW_H, (area.h - 8) / rows.length) : 0;
-  const barSize = horizontal ? Math.round(Math.min(26, Math.max(BAR_SIZE, rowSpace * 0.42))) : BAR_SIZE;
+  const barSize = horizontal ? Math.round(Math.min(26, Math.max(BAR_SIZE, rowSpace * 0.42))) : widget.chartConfig?.wideColumns ? 44 : BAR_SIZE;
   const showLabels = single && rows.length <= 24 && (widget.chartConfig?.series?.[0]?.dataLabels?.visible ?? false);
   const fmt = (v: unknown) => formatNumber(v, widget.valueFormat);
   const opacity = (x: unknown) => (selected.size === 0 || selected.has(String(x)) ? 1 : 0.3);
@@ -697,7 +739,8 @@ function SerialChart({ widget }: { widget: Widget }) {
     return out;
   }, [rows, series]);
   const valueDigits = widget.chartConfig?.valueDigits;
-  const axisValue = (v: number) => (valueDigits === undefined ? compact(v) : v.toFixed(valueDigits));
+  const wholeValue = (v: number) => Math.round(v).toLocaleString("en-US");
+  const axisValue = (v: number) => (widget.chartConfig?.wholeValues ? wholeValue(v) : valueDigits === undefined ? compact(v) : v.toFixed(valueDigits));
   const lineLabel =
     (key: string, color: string) =>
     (p: { x?: number | string; y?: number | string; value?: unknown; index?: number }) => {
@@ -734,7 +777,8 @@ function SerialChart({ widget }: { widget: Widget }) {
   // Хэвтээ графикийн ангиллын тэнхлэг — шошгоны уртад тааруулна (NW, CEN бол нарийн, урт нэр бол 110px хүртэл)
   // нарийн самбарт баганад зай үлдээхийн тулд шошго самбарын 42%-иас хэтрэхгүй (урт нэр 2 мөрт орно)
   const CAT_W = Math.round(area.w ? Math.min(220, area.w * 0.5, Math.max(56, longest * 5.8 + 14)) : 120);
-  const rotH = Math.min(110, 14 + longest * 5.6); // босоо бичсэн ангиллын шошгоны өндөр
+  const catAxisHeight = widget.chartConfig?.catAxisHeight;
+  const rotH = catAxisHeight ?? Math.min(110, 14 + longest * 5.6); // босоо бичсэн ангиллын шошгоны өндөр
 
   // Тогтмол тэнхлэг ба гүйлгэх график хоёр ижил утгын хүрээтэй байж яг таарна
   const lineOnly = series.length > 0 && series.every((sr) => sr.kind === "line");
@@ -822,13 +866,19 @@ function SerialChart({ widget }: { widget: Widget }) {
   const colPx = Math.max(0, area.w - VAL_W - 20) / Math.max(1, rows.length);
   const catFont = horizontal && rowPx < 11 ? 9 : 10;
   // Босоо графикт урт нэртэй олон ангилал (модны төрөл гэх мэт) багтахгүй бол шошгыг босоогоор бичнэ
-  const rotateCats = !horizontal && !ordinal && colPx > 0 && colPx < longest * 5.8 + 8;
+  const wrapCats = !horizontal && widget.chartConfig?.wrapCats;
+  const wrapFits = (fontSize: number) => {
+    const maxChars = Math.floor(colPx / (fontSize * WRAP_CHAR));
+    return rows.every((r) => labelTokens(String(r.__label ?? ""), maxChars).every((token) => token.length <= maxChars));
+  };
+  const wrapFont = !wrapCats || !colPx ? 0 : wrapFits(10) ? 10 : wrapFits(9) ? 9 : 0;
+  const rotateCats = !horizontal && !ordinal && colPx > 0 && (wrapCats ? !wrapFont : colPx < longest * 5.8 + 8);
   const catAxis = {
     ...axis,
     dataKey: "__label",
     type: "category" as const,
     // Шошго багтвал бүгдийг, эс бөгөөс давхцахгүйгээр сийрэгжүүлнэ
-    interval: (horizontal ? rowPx >= 9.5 || widget.chartConfig?.allRows : rotateCats ? colPx >= 12 : colPx >= Math.max(28, longest * 5.8 + 4) || (rows.length <= 12 && (!evenTicks || colPx >= longest * 5.8 + 4))) ? 0 : ("preserveStartEnd" as const),
+    interval: (horizontal ? rowPx >= 9.5 || widget.chartConfig?.allRows : wrapFont ? true : rotateCats ? colPx >= 12 : colPx >= Math.max(28, longest * 5.8 + 4) || (rows.length <= 12 && (!evenTicks || colPx >= longest * 5.8 + 4))) ? 0 : ("preserveStartEnd" as const),
   };
   const valAxis = {
     ...axis,
@@ -837,6 +887,7 @@ function SerialChart({ widget }: { widget: Widget }) {
     axisLine: false,
     ...(scroll || lineOnly || tightBars || evenTicks || guides.length ? { domain: valueDomain } : {}),
     ...(evenTicks ? { ticks: axisTicks.current, interval: 0 as const } : {}),
+    ...(wrapCats ? { tick: { fill: "var(--text-secondary)", fontSize: 10 } } : {}),
     allowDataOverflow: tightBars,
   };
   // ---- Баганын утгын шошго (ArcGIS-д «утга харуулах» асаалттай үед)
@@ -884,16 +935,16 @@ function SerialChart({ widget }: { widget: Widget }) {
       </text>
     );
   };
-  const rotateLabels = barLabelsOn && !horizontal && slot < 38; // нарийн баганад шошгыг босоогоор бичнэ
   const labelText = (i: number, v: unknown) => {
     const n = stackedBars ? totals[i] : Number(v);
-    return Number.isFinite(n) && n !== 0 ? compact(n) : "";
+    return Number.isFinite(n) && n !== 0 ? (widget.chartConfig?.wholeValues ? wholeValue(n) : compact(n)) : "";
   };
   const longestLabel = paLabelsOn
     ? Math.max(0, ...rows.map((r) => paText(r).length))
     : barLabelsOn
       ? Math.max(0, ...rows.map((_, i) => labelText(i, rows[i][barSeries[0]?.key]).length))
       : 0;
+  const rotateLabels = barLabelsOn && !horizontal && slot < (wrapCats ? longestLabel * WRAP_CHAR * 10 + 2 : 38); // нарийн баганад шошгыг босоогоор бичнэ
   const barLabel = (p: { x?: number | string; y?: number | string; width?: number | string; height?: number | string; value?: unknown; index?: number }) => {
     const i = p.index ?? 0;
     const txt = labelText(i, p.value);
@@ -955,6 +1006,7 @@ function SerialChart({ widget }: { widget: Widget }) {
           <XAxis
             {...catAxis}
             {...(scrollLabels ? { angle: -90, textAnchor: "end", height: rotH, dx: -3, dy: 2 } : {})}
+            {...(wrapFont ? { height: WRAP_AXIS_H, tick: <WrapTick width={colPx} fontSize={wrapFont} /> } : {})}
           />
           <YAxis {...valAxis} width={VAL_W} hide={hideValueAxis} />
         </>
@@ -1552,7 +1604,7 @@ function RankList({ widget, field, items }: { widget: Widget; field: string; ite
   const { selections, setSelection } = useDashboard();
   const sel = selections[widget.id];
   const chosen = new Set((sel?.values ?? []).map(String));
-  const canSelect = Boolean(widget.events?.length);
+  const canSelect = Boolean(field);
   const max = Math.max(1, ...items.map(([, v]) => v));
   const fit = size.h ? Math.max(1, Math.floor(size.h / RANK_ROW)) : items.length;
   const shown = items.length > fit ? items.slice(0, fit - 1) : items;

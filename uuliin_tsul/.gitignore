@@ -1,0 +1,21 @@
+﻿node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Vercel
+.vercel
+
+# Локал орчин, лог
+.env
+.env.*
+*.log
+
+# Esri Experience Builder-ийн экспорт — зөвхөн дизайны лавлагаа,
+# аппад ашиглагдахгүй 2.4 МБ файл
+_exb.json
+
+# Python
+__pycache__/
+*.pyc

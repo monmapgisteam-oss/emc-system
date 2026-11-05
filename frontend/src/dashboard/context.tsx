@@ -9,6 +9,8 @@ type Ctx = {
   selections: Record<string, Selection | null>;
   setSelection: (sourceId: string, sel: Selection | null) => void;
   filtersFor: (targetKey: string, selfId: string) => RuntimeFilter[];
+  /** Энэ зургийг орон зайгаар (аймаг, сум) хязгаарлах сонголтууд */
+  geoFor: (mapId: string) => { layerId: string; sel: Selection }[];
 };
 
 const DashboardCtx = createContext<Ctx | null>(null);
@@ -37,29 +39,86 @@ export function useDashboard() {
   return ctx;
 }
 
-/** Виджет бүрийн events-ээс «targetId → эх үүсвэрүүд» индекс байгуулна. */
+
+function targetsOf(w: Widget, by: string) {
+  return (w.events ?? [])
+    .filter((ev) => ev.type === "selectionChanged")
+    .flatMap((ev) => ev.actions ?? [])
+    .flatMap((a) => a.targets ?? [])
+    .filter((t) => t.by === by);
+}
+
+const layerKey = (w: Widget, name = "main") => {
+  const src = w.datasets?.find((d) => d.name === name)?.dataSource as { itemId?: string; layerId?: unknown } | undefined;
+  return src?.itemId && src.layerId != null ? `${src.itemId}|${src.layerId}` : null;
+};
+
+/**
+ * «targetId → эх үүсвэрүүд» индекс. Dashboard-д тодорхойлсон холбоос дээр нэмж:
+ * холбоогүй chart, шүүлтүүр нь ижил давхаргын виджетүүдийг шүүнэ, бүгд тухайн давхаргын зурагт хүрнэ.
+ */
 function buildLinks(def: DashboardDef): Map<string, Link[]> {
-  const all: Widget[] = [...def.widgets, ...(def.header?.selectors ?? []), ...(def.leftPanel?.selectors ?? [])];
-  const links = new Map<string, Link[]>();
+  const selectors = [...(def.header?.selectors ?? []), ...(def.leftPanel?.selectors ?? [])];
+  const all: Widget[] = [...def.widgets, ...selectors];
+  const maps = def.widgets.filter((w) => w.type === "mapWidget");
+  const layerOf = new Map<string, string>();
   for (const w of all) {
-    for (const ev of w.events ?? []) {
-      if (ev.type !== "selectionChanged") continue;
-      for (const a of ev.actions ?? []) {
-        for (const t of a.targets ?? []) {
-          if (t.by !== "whereClause") continue; // geometry (газрын зургийн хүрээ) шүүлтийг дэмжихгүй
-          const list = links.get(t.targetId) ?? [];
-          list.push({ sourceId: w.id, fieldMap: t.fieldMap });
-          links.set(t.targetId, list);
-        }
+    for (const d of w.datasets ?? []) {
+      const key = layerKey(w, d.name);
+      if (key) layerOf.set(`${w.id}#${d.name}`, key);
+    }
+  }
+  const links = new Map<string, Link[]>();
+  const add = (targetId: string, link: Link) => {
+    const list = links.get(targetId) ?? [];
+    const same = list.find((l) => l.sourceId === link.sourceId);
+    // Огнооны шүүлтүүрийн талбар fieldMap-д: зургийн холбоост дутуу бол ижил давхаргынхаас авна
+    if (same) same.fieldMap ??= link.fieldMap;
+    else list.push(link);
+    links.set(targetId, list);
+  };
+  for (const w of all) {
+    if (w.type === "mapWidget") continue;
+    const own = layerKey(w);
+    let targets: { targetId: string; fieldMap?: Link["fieldMap"] }[] = targetsOf(w, "whereClause");
+    if (!targets.length && own) {
+      targets = [...layerOf.entries()]
+        .filter(([id, key]) => key === own && !id.startsWith(`${w.id}#`) && !selectors.some((s) => id.startsWith(`${s.id}#`)))
+        .map(([targetId]) => ({ targetId }));
+    }
+    for (const t of targets) add(t.targetId, { sourceId: w.id, fieldMap: t.fieldMap });
+    // Зураг: шүүгдэж буй давхарга зурагт байвал түүнийг ч шүүнэ
+    const sources: [string | null, Link["fieldMap"]][] = [[own, undefined], ...targets.map((t) => [layerOf.get(t.targetId) ?? null, t.fieldMap] as [string | null, Link["fieldMap"]])];
+    for (const [key, fieldMap] of sources) {
+      if (!key) continue;
+      const [itemId, layerId] = key.split("|");
+      for (const m of maps) {
+        if (m.itemId === itemId) add(`${m.id}#${layerId}`, { sourceId: w.id, fieldMap });
       }
     }
   }
   return links;
 }
 
+/** Зургийг орон зайгаар хязгаарлах (аймаг, сум) сонгогчид */
+function buildGeo(def: DashboardDef) {
+  const all: Widget[] = [...def.widgets, ...(def.header?.selectors ?? []), ...(def.leftPanel?.selectors ?? [])];
+  const geo = new Map<string, { sourceId: string; layerId: string }[]>();
+  for (const w of all) {
+    const layerId = (w.datasets?.[0]?.dataSource as { layerId?: unknown } | undefined)?.layerId;
+    if (layerId == null) continue;
+    for (const t of targetsOf(w, "geometry")) {
+      const mapId = t.targetId.split("#")[0];
+      geo.set(mapId, [...(geo.get(mapId) ?? []).filter((g) => g.sourceId !== w.id), { sourceId: w.id, layerId: String(layerId) }]);
+    }
+  }
+  return geo;
+}
+
 export function DashboardProvider({ def, children }: { def: DashboardDef; children: React.ReactNode }) {
   const [selections, setSelections] = useState<Record<string, Selection | null>>({});
   const links = useMemo(() => buildLinks(def), [def]);
+  const geo = useMemo(() => buildGeo(def), [def]);
 
   useEffect(() => {
     setSelections({});
@@ -81,8 +140,13 @@ export function DashboardProvider({ def, children }: { def: DashboardDef; childr
         }
         return out;
       },
+      geoFor: (mapId) =>
+        (geo.get(mapId) ?? []).flatMap(({ sourceId, layerId }) => {
+          const sel = selections[sourceId];
+          return sel ? [{ layerId, sel }] : [];
+        }),
     }),
-    [def.id, selections, links],
+    [def.id, selections, links, geo],
   );
 
   return <DashboardCtx.Provider value={value}>{children}</DashboardCtx.Provider>;

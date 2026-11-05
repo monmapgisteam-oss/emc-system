@@ -97,11 +97,8 @@ export const IconGear = ({ size = 16 }: P) =>
 const DEPT_ICONS: Record<string, (p: P) => JSX.Element> = {
   GMH: IconLayers, // Геологи, маркшейдер
   COM: IconNetwork, // Холбоо шугамын байгууламж
-  GHE: IconDrill, // Геологи хайгуулын экспедици
   BOH: IconLeaf, // Байгаль орчин, ногоон хөгжил
-  NHT: IconSprout, // Ногоон хөгжлийн төслийн нэгж
   HSE: IconShield, // ХАБЭА
-  MEC: IconGear, // Механик
 };
 
 /** Хэлтсийн дүрс — өнгөт дэвсгэртэй жижиг хайрцагт. Өнгө нь CSS хувьсагч (--dc) — идэвхтэй/идэвхгүй байдлыг CSS шийднэ */

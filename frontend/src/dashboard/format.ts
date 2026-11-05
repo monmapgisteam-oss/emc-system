@@ -48,7 +48,7 @@ export function displayValue(v: unknown, field?: Field): string {
   if (typeof v === "number") {
     const names = `${field?.name ?? ""} ${field?.alias ?? ""}`;
     // Он «2,007» биш «2007»
-    if (Number.isInteger(v) && v >= 1900 && v <= 2100 && /(^|[\s_])(он|year|жил)([\s_]|$)/i.test(names)) return String(v);
+    if (Number.isInteger(v) && v >= 1900 && v <= 2100 && /(^|[\s_])(он|year|жил|ognoo)([\s_]|$)/i.test(names)) return String(v);
     // Координат «104» биш «104.0123»
     if (/^(x|y|lat|lon|lng|latitude|longitude|өргөрөг|уртраг)$/i.test(field?.name ?? "")) {
       return v.toLocaleString("mn-MN", { maximumFractionDigits: 6, useGrouping: false });

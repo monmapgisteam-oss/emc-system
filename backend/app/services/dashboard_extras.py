@@ -12,6 +12,8 @@ PIEZOMETER = "add0cac7777548b8ae50a56540ac9dab"
 RADIAL_WELLS = "6881797668e94c309b6da112353c31f7"
 LAND_REGISTER = "e1ec8b20a6d347e68e64349abf134d50"
 LICENCES = "b84bc4b55e2d45d99e2e85cb8aaf08c3"
+CABLES = "8cbeb0e832c345c88edf491a518af092"
+CABLE_SURVEY = "a7183226293c4b2788e7b00164fba242"
 LAKE = "e50476e7809b4a76a0650bbe1e45e8b2"
 HISTORY = "7de28b1b1fd84d75be4cfb3b376c1113"
 RESERVES = "e3629640d8dd45698968acc1244cf133"
@@ -941,6 +943,14 @@ def _radial_wells(dash: dict) -> None:
     _tab_labels(dash["layout"], labels)
 
 
+def _copy_targets(dash: dict, source_id: str, widgets: list[dict]) -> None:
+    """Шинэ виджетүүд эх виджетийн адил шүүлтүүрт орно."""
+    for holder in [*dash["widgets"], *dash["header"]["selectors"]]:
+        for event in holder.get("events") or []:
+            for action in event["actions"]:
+                action["targets"] += [{**t, "targetId": t["targetId"].replace(source_id, w["id"])} for t in action["targets"] if t["targetId"].startswith(source_id) for w in widgets]
+
+
 def _year_line(w: dict, base: dict, title: str, field: str, kind: str, stat: dict) -> None:
     """Усны балансын адил гөлгөр шугам: талбар нь хоосон бичлэг графикт орохгүй."""
     w.update({"type": "serialChartWidget", "topCaption": _caption(title), "chartConfig": copy.deepcopy(base)})
@@ -980,14 +990,32 @@ def _land_register(dash: dict) -> None:
         w["defaultSettings"]["middleSection"]["textInfo"]["text"] = "{value}"
     # Төрөл, бүс графикаас шүүлтүүрт шилжив
     selectors = dash["header"]["selectors"]
-    # Аймаг, сум нь хилийн давхаргаас геометрээр шүүдэг: бичлэгийн Аймаг, Сум талбараар шүүнэ
+    # Аймаг, сумыг бүртгэлийн өөрийн талбараас сонгоно: хилийн давхаргад нэр зөрдөг («Баян Өндөр», «Баян-Өндөр»),
+    # нэг нэртэй сум олон аймагт байдаг. Зураг сонгосон талбайнууд руу очно.
     records = {w["id"] for w in dash["widgets"]} | {x["id"] for x in selectors if not x["id"].startswith(("0bfdaede", "dffc793d"))}
-    for prefix, source, target in (("0bfdaede", "aimag_name", "Аймаг"), ("dffc793d", "soum_name", "Сум")):
-        for event in next(x for x in selectors if x["id"].startswith(prefix))["events"]:
+    map_id = by_prefix["5cd44381"]["id"]
+    source_layer = by_prefix["6638fcbf"]["datasets"][0]["dataSource"]
+    for prefix, target in (("0bfdaede", "Аймаг"), ("dffc793d", "Сум")):
+        selector = next(x for x in selectors if x["id"].startswith(prefix))
+        dataset = selector["datasets"][0]
+        dataset["dataSource"] = copy.deepcopy(source_layer)
+        dataset["groupByFields"] = [target]
+        dataset["orderByFields"] = [f"{target} ASC"]
+        dataset["statisticDefinitions"] = [{"onStatisticField": "OBJECTID", "statisticType": "count", "outStatisticFieldName": "COUNT_OBJECTID"}]
+        for event in selector["events"]:
             for action in event["actions"]:
+                if action["type"] != "filter":
+                    continue
+                kept = []
                 for t in action["targets"]:
-                    if action["type"] == "filter" and t["by"] == "geometry" and t["targetId"].split("#")[0] in records and "#main" in t["targetId"]:
-                        t.update({"by": "whereClause", "fieldMap": [{"sourceName": source, "targetName": target}]})
+                    owner = t["targetId"].split("#")[0]
+                    if owner == map_id:
+                        continue  # хилийн давхарга: бүртгэлийн давхаргын холбоосыг context үүсгэнэ
+                    if owner in records and "#main" in t["targetId"]:
+                        t.update({"by": "whereClause"})
+                        t.pop("fieldMap", None)
+                        kept.append(t)
+                action["targets"] = kept
     template = next(x for x in selectors if x["id"].startswith("b8f9aad8"))
     added = []
     for selector_id, label, field in (("emc-land-type", "Төрлөөр шүүх", "Газар"), ("emc-land-zone", "Бүсээр шүүх", "Бүс")):
@@ -1021,11 +1049,7 @@ def _licences(dash: dict) -> None:
                     ]
     # Шинэ 2 график хуучин графикийн адил шүүлтүүрт орно
     added = [{**copy.deepcopy(source), "id": "emc-licence-issued-area"}, {**copy.deepcopy(source), "id": "emc-licence-end-area"}]
-    selectors = dash["header"]["selectors"]
-    for holder in [*dash["widgets"], *selectors]:
-        for event in holder.get("events") or []:
-            for action in event["actions"]:
-                action["targets"] += [{**t, "targetId": t["targetId"].replace(source["id"], w["id"])} for t in action["targets"] if t["targetId"].startswith(source["id"]) for w in added]
+    _copy_targets(dash, source["id"], added)
     dash["widgets"] = [*dash["widgets"], *added]
     for w, title, field, stat in (
         (by_prefix["50e1d23e"], "Олгосон лиценз, оноор, ш", "Олгос", count),
@@ -1044,7 +1068,103 @@ def _licences(dash: dict) -> None:
         w["defaultSettings"].setdefault("bottomSection", {}).setdefault("textInfo", {})["text"] = ""
 
 
-EXTRAS = {EXPLORATION: _exploration, HOLES: _holes, WATER_IN: _water_in, WATER_OUT: _water_out, WATER_GENERAL: _water_general, WATER_OTHER: _water_other, GOVIL: _govil, PIEZOMETER: _piezometer, RADIAL_WELLS: _radial_wells, LAND_REGISTER: _land_register, LICENCES: _licences, LAKE: _lake, HISTORY: _history, RESERVES: _reserves, DUMPS: _dumps, DRILL_REPORT: _drill_report, DRILL_MACHINES: _drill_machines, HOLE_REPORT: _hole_report}
+def _cables(dash: dict) -> None:
+    by_prefix = {w["id"][:8]: w for w in dash["widgets"]}
+    length = {"onStatisticField": "urt", "statisticType": "sum", "outStatisticFieldName": "SUM_URT"}
+    rule = lambda field, op, **constraint: {"type": "filterRule", "field": {"name": field, "type": "string"}, "operator": op, "constraint": constraint}
+    # 352 бичлэгийн 275-ын нэр «0», «1»: нэрээр эрэмбэлэхэд тэд давамгайлна
+    named = rule("Name", "not_in", type="values", values=["0", "1"])
+    template = by_prefix["240d8a79"]["chartConfig"]
+    # Цацраг худгийн адил босоо багана: панелиа дүүргэнэ
+    column_config = copy.deepcopy(template)
+    column_config.pop("chartRenderer", None)
+    column_config.update({"columns": True, "rotated": False, "evenTicks": True, "wholeValues": True, "wideColumns": True, "wrapCats": True})
+    list_config = copy.deepcopy(template)
+    list_config.pop("chartRenderer", None)
+    list_config.update({"allRows": True, "wholeValues": True})
+    # 150 төрөлгүй бичлэг аль алинд нь орохгүй
+    for name, value, code_chart, line_chart, kpis in (
+        ("Физик", "Физик кабель", "2f42e6ac", "7f2cc4ee", (("0927d38c", "Физик кабель", "records", "ш"), ("b9749e13", "Физик кабелийн урт", "depth", "м"), ("de0682fa", "Физик муфт", "records", "ш"))),
+        ("Шилэн", "Шилэн кабель", "240d8a79", "2bf0de49", (("8fee0e78", "Шилэн кабель", "records", "ш"), ("7ad9738a", "Шилэн кабелийн урт", "depth", "м"), ("ac106118", "Шилэн муфт", "records", "ш"))),
+    ):
+        sub = rule("Дэд_т", "equal", type="value", value=value)
+        w = by_prefix[code_chart]
+        w.update({"topCaption": _caption(f"{name} кабелийн төрөл, м"), "chartConfig": {**copy.deepcopy(column_config), "catAxisHeight": 110}})
+        w["chartConfig"]["series"][0].update({"x": "Шугам", "y": "SUM_URT"})
+        w["datasets"][0].update({"statisticDefinitions": [length], "orderByFields": ["SUM_URT DESC"], "filter": sub})
+        w = by_prefix[line_chart]
+        w.update({"topCaption": _caption(f"{name} кабелийн шугам, м"), "bottomCaption": "Нэргүй («0», «1») хэсгүүд ороогүй", "chartConfig": copy.deepcopy(list_config)})
+        w["chartConfig"]["series"][0].update({"x": "Name", "y": "SUM_URT"})
+        w["datasets"][0].update({"filter": {"type": "filterGroup", "condition": "AND", "rules": [sub, named]}})
+        for kpi, title, icon, unit in kpis:
+            w = by_prefix[kpi]
+            w["icon"], w["iconWide"], w["unit"] = icon, True, unit
+            w["defaultSettings"]["topSection"]["textInfo"]["text"] = title
+            w["defaultSettings"]["middleSection"]["textInfo"]["text"] = "{value}"
+            w["defaultSettings"].setdefault("bottomSection", {}).setdefault("textInfo", {})["text"] = ""
+    # Он, суурилуулалт Физикт бага мэдээлэлтэй (2 он, 98% газар доор): нэг график, төрлөөр өнгө ялгана
+    both = rule("Дэд_т", "is_in", type="values", values=["Физик кабель", "Шилэн кабель"])
+    colors = {"Физик кабель": "#a7ecd9", "Шилэн кабель": "#2aa98d"}
+    for chart, title, field, order in (("8a024fd9", "Кабелийн урт, оноор, м", "ognoo", "ognoo ASC"), ("00136c2d", "Кабелийн суурилуулалт, м", "Шуга_1", "SUM_URT DESC")):
+        w = by_prefix[chart]
+        w.update({"topCaption": _caption(title), "bottomCaption": "", "chartConfig": {**copy.deepcopy(column_config), "splitColors": colors}, "splitBy": {"fieldName": "Дэд_т"}})
+        w["chartConfig"]["series"][0].update({"x": field, "y": "SUM_URT"})
+        w["datasets"][0].update({"groupByFields": [field, "Дэд_т"], "orderByFields": [order], "statisticDefinitions": [length], "filter": both})
+    # Бүсийн шүүлтүүр анхнаасаа эдгээрт хүрдэггүй байсан
+    for selector in dash["header"]["selectors"]:
+        if selector["id"].startswith("35a0b34a"):
+            for event in selector["events"]:
+                for action in event["actions"]:
+                    if action["type"] == "filter":
+                        action["targets"] += [{"targetId": f'{by_prefix[k]["id"]}#main', "by": "whereClause", "requiresSelection": False} for k in ("240d8a79", "2f42e6ac", "00136c2d")]
+
+
+def _cable_survey(dash: dict) -> None:
+    by_prefix = {w["id"][:8]: w for w in dash["widgets"]}
+    rule = lambda field, op, **constraint: {"type": "filterRule", "field": {"name": field, "type": "string"}, "operator": op, "constraint": constraint}
+    # Анхны is_not_empty шүүлтийг сервер дэмждэггүй тул 323 хоосон мөр гардаг байсан. cross нь SQL-ийн нөөц үг: кодоор нь шүүнэ
+    for chart, title, field in (
+        ("0af49329", "Аппаратын засвар, ш", "apparat"), ("866951da", "Кабель шугамын засвар, ш", "cableshugam"), ("32ed008c", "Станцын гэмтэл, ш", "stantsiingemtel"),
+        ("894d6dbb", "Кроссын засвар, ш", "crosskod"), ("b3d6dd50", "Бусад гэмтэл, ш", "busad"),
+    ):
+        by_prefix[chart]["topCaption"] = _caption(title)
+        by_prefix[chart]["datasets"][0]["filter"] = {"type": "filterGroup", "condition": "AND", "rules": [rule(field, "is_not_null", type="nil"), rule(field, "not_equal", type="value", value="")]}
+    by_prefix["93217e06"]["topCaption"] = _caption("Татсан кабелийн урт, м")
+    by_prefix["ad12f25d"]["topCaption"] = _caption("Кабелийн ажлын тоо, ш")
+    # Ажилтан: 11 хүн бүгд, цэнхэр, улбар шарын оронд нэг ногооны 2 түвшин
+    staff = by_prefix["e2197bbd"]
+    staff["topCaption"] = _caption("Ажилтны гүйцэтгэл, ш")
+    staff["chartConfig"].update({"allRows": True, "splitColors": {"Cable": "#2aa98d", "Duudlaga": "#a7ecd9"}})
+    # Холболтын талбар бараг хоосон (0, 0, 0, 1): ажлын нийт тоо, уртаар солив
+    for kpi, title, icon, unit, flt, stat in (
+        ("39ed8593", "Засвар хийсэн", "records", "ш", None, None),
+        ("50355499", "Дуудлага", "records", "ш", rule("gemtliinturul", "equal", type="value", value="Duudlaga"), None),
+        ("a5a55abb", "Кабелийн ажил", "records", "ш", rule("gemtliinturul", "equal", type="value", value="Cable"), None),
+        ("20dd1174", "Татсан кабелийн урт", "depth", "м", by_prefix["93217e06"]["datasets"][0]["filter"], {"onStatisticField": "cabliinurt", "statisticType": "sum", "outStatisticFieldName": "SUM_CABLIINURT"}),
+    ):
+        w = by_prefix[kpi]
+        w["icon"], w["iconWide"], w["unit"] = icon, True, unit
+        w["defaultSettings"]["topSection"]["textInfo"]["text"] = title
+        w["defaultSettings"]["middleSection"]["textInfo"]["text"] = "{value}"
+        w["defaultSettings"].setdefault("bottomSection", {}).setdefault("textInfo", {})["text"] = ""
+        w["valueFormat"] = {**w.get("valueFormat", {}), "useGrouping": True, "maximumFractionDigits": 0}
+        if flt:
+            w["datasets"][0]["filter"] = copy.deepcopy(flt)
+        if stat:
+            w["datasets"][0]["statisticDefinitions"] = [stat]
+    # Кабелийн ажлын бичлэгт ognoo хоосон, огноо нь ehelsenognoo
+    cable_only = {by_prefix[k]["id"] for k in ("a5a55abb", "20dd1174", "ad12f25d")}
+    for selector in dash["header"]["selectors"]:
+        if selector["id"].startswith("7b53af27"):
+            for event in selector["events"]:
+                for action in event["actions"]:
+                    for target in action["targets"]:
+                        if target["targetId"].split("#")[0] in cable_only:
+                            for mapped in target.get("fieldMap") or []:
+                                mapped["targetName"] = "ehelsenognoo"
+
+
+EXTRAS = {EXPLORATION: _exploration, HOLES: _holes, WATER_IN: _water_in, WATER_OUT: _water_out, WATER_GENERAL: _water_general, WATER_OTHER: _water_other, GOVIL: _govil, PIEZOMETER: _piezometer, RADIAL_WELLS: _radial_wells, LAND_REGISTER: _land_register, LICENCES: _licences, CABLES: _cables, CABLE_SURVEY: _cable_survey, LAKE: _lake, HISTORY: _history, RESERVES: _reserves, DUMPS: _dumps, DRILL_REPORT: _drill_report, DRILL_MACHINES: _drill_machines, HOLE_REPORT: _hole_report}
 
 
 def apply(dash: dict) -> dict:

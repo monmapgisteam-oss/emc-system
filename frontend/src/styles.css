@@ -403,7 +403,13 @@ body { background: radial-gradient(1200px 600px at 80% -10%, rgba(12, 124, 111, 
 .app main:has(.home), .app main:has(.home2), .app main:has(.disp), .app main:has(.geo) { padding-bottom: 0; }
 /* ---------- Геомэдээллийн сан: газрын зураг бүтэн, давхаргын цэс зүүн талд ---------- */
 .geo { position: relative; height: calc(100vh - var(--head-h)); min-height: 480px; }
+.app main:has(.tsul-page) { padding-bottom: 0; }
+.tsul-page { position: relative; height: calc(100vh - var(--head-h)); min-height: 480px; }
+.tsul-page iframe { display: block; width: 100%; height: 100%; border: 0; }
+.tsul-loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-muted); pointer-events: none; }
 .geo .dw-map { position: absolute; inset: 0; min-height: 0; }
+.geo .map3d, .geo .map3d-wait { z-index: 5; }
+.geo .map-dim { left: 384px; }
 .geo-panel, .geo-open { position: absolute; z-index: 800; left: 12px; top: 12px; background: rgba(9, 22, 19, .92); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, .08); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
 .geo-panel { max-height: calc(100% - 24px); width: min(310px, calc(100% - 24px)); display: flex; flex-direction: column; }
 .app .geo-open { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; color: var(--text-primary); font-size: 13px; cursor: pointer; }

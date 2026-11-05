@@ -20,7 +20,8 @@ export function CategorySelector({ widget }: { widget: Widget }) {
   const { data, loading } = useWidgetData(widget);
   const { open, setOpen, ref } = usePopover();
   const [q, setQ] = useState("");
-  const field = widget.datasets?.[0]?.groupByFields?.[0];
+  // «features» төрлийн шүүлтүүрт талбар нь itemText-д: «{field/On}»
+  const field = widget.datasets?.[0]?.groupByFields?.[0] ?? (widget.category as { itemText?: string } | undefined)?.itemText?.match(/\{field\/([^}]+)\}/)?.[1];
   const meta = data?.fields.find((f) => f.name === field);
   const multiple = widget.selection?.type !== "single";
   const sel = selections[widget.id];
@@ -28,10 +29,13 @@ export function CategorySelector({ widget }: { widget: Widget }) {
   const label = stripHtml(widget.label) || widget.name || field || "Шүүлтүүр";
 
   const options = useMemo(
-    () =>
-      (data?.rows ?? [])
+    () => {
+      const seen = new Set<string>();
+      return (data?.rows ?? [])
         .map((r) => ({ raw: field ? r[field] : undefined, label: displayValue(field ? r[field] : undefined, meta) }))
-        .filter((o) => o.raw !== undefined && !(o.raw === null && widget.selection?.allowNone === false)),
+        .filter((o) => o.raw !== undefined && !(o.raw === null && widget.selection?.allowNone === false))
+        .filter((o) => !seen.has(String(o.raw)) && Boolean(seen.add(String(o.raw))));
+    },
     [data, field, meta, widget.selection?.allowNone],
   );
   const shown = q ? options.filter((o) => o.label.toLowerCase().includes(q.toLowerCase())) : options;

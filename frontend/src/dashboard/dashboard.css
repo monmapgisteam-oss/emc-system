@@ -226,6 +226,65 @@ body.dw-resizing-h .dw-panel, body.dw-resizing-v .dw-panel { pointer-events: non
 /* ---------- Газрын зураг: цэгийг талбараар өнгөлөх ---------- */
 .dw-map-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
 .dw-map-wrap .dw-map { flex: 1; }
+
+/* 2D, 3D сэлгүүр */
+.map-dim { position: absolute; z-index: 1200; top: 10px; left: 52px; display: flex; padding: 2px; border: 1px solid var(--axis); border-radius: 7px; background: rgba(9, 22, 19, .92); box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
+.app .map-dim button { min-width: 36px; padding: 4px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 700; cursor: pointer; }
+.app .map-dim button:hover { color: var(--text-primary); }
+.app .map-dim button.on { background: var(--accent); color: var(--accent-ink); }
+.is-3d > .dw-map, .is-3d > .dw-map-color, .is-3d > .dw-map-legends { visibility: hidden; }
+.map3d-wait { position: absolute; inset: 0; z-index: 900; display: grid; place-items: center; background: var(--surface-1); color: var(--text-muted); }
+
+/* 3D харагдац: хэрэгсэл, үр дүн */
+.map3d { position: absolute; inset: 0; z-index: 900; overflow: hidden; background: var(--page); container-type: size; }
+.map3d-view { position: absolute; inset: 0; }
+.map3d-right { z-index: 1; pointer-events: none; }
+.map3d-right * { pointer-events: none !important; }
+.map3d-swipe { position: absolute; z-index: 2; top: 0; bottom: 0; width: 16px; margin-left: -8px; cursor: ew-resize; touch-action: none; }
+.map3d-swipe::before { content: ""; position: absolute; top: 0; bottom: 0; left: 7px; width: 2px; background: var(--accent); box-shadow: 0 0 4px rgba(0, 0, 0, .6); }
+.map3d-swipe b { position: absolute; top: 50%; left: 50%; width: 28px; height: 28px; margin: -14px 0 0 -14px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 14px; line-height: 1; box-shadow: 0 1px 6px rgba(0, 0, 0, .5); }
+.map3d-swipe em { position: absolute; bottom: 12px; padding: 2px 7px; border-radius: 4px; background: rgba(9, 22, 19, .88); color: var(--text-primary); font-size: 11px; font-style: normal; font-weight: 700; white-space: nowrap; pointer-events: none; }
+.map3d-swipe em.l { right: 14px; }
+.map3d-swipe em.r { left: 14px; }
+.map3d-failed { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; text-align: center; color: var(--status-critical); }
+.map3d-side { position: absolute; z-index: 3; top: 42px; right: 10px; }
+.dw-panel:has(.map3d) .dw-expand { z-index: 1250; opacity: 1; }
+.map3d-cards { position: absolute; top: 0; right: 40px; width: 214px; max-width: calc(100cqw - 90px); max-height: calc(100cqh - 52px); display: flex; flex-direction: column; gap: 8px; overflow-y: auto; scrollbar-width: thin; }
+.map3d-tools { display: flex; flex-direction: column; gap: 1px; box-shadow: 0 1px 2px rgba(0, 0, 0, .3); }
+.map3d-tools > i { display: none; }
+.app .map3d-tools button { width: 32px; height: 32px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 0; background: #242424; color: #adadad; cursor: pointer; }
+.app .map3d-tools button:hover { background: #2b2b2b; color: #fff; }
+.app .map3d-tools button.on { background: var(--accent); color: var(--accent-ink); }
+.map3d-tools button span { display: none; }
+.map3d-tools svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.map3d-card { flex: none; padding: 9px 11px; border: 1px solid var(--axis); border-radius: 8px; background: rgba(9, 22, 19, .94); box-shadow: 0 2px 10px rgba(0, 0, 0, .4); font-size: 12px; color: var(--text-primary); }
+.map3d-card header { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; font-size: 12.5px; }
+.app .map3d-card .x { padding: 0 4px; border: 0; background: transparent; color: var(--text-muted); font-size: 16px; line-height: 1; cursor: pointer; }
+.app .map3d-card .x:hover { color: var(--text-primary); }
+.map3d-card .seg { display: flex; gap: 2px; margin-bottom: 8px; padding: 2px; border: 1px solid var(--axis); border-radius: 6px; }
+.app .map3d-card .seg button { flex: 1; padding: 3px 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 700; cursor: pointer; }
+.app .map3d-card .seg button:hover { color: var(--text-primary); }
+.app .map3d-card .seg button.on { background: var(--accent); color: var(--accent-ink); }
+.app .map3d-levels > button:not(.x) { display: block; width: 100%; padding: 3px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); font-size: 12px; text-align: left; cursor: pointer; }
+.app .map3d-levels > button:not(.x):hover { background: rgba(255, 255, 255, .06); color: var(--text-primary); }
+.app .map3d-levels > button.on:not(.x) { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.map3d-card .hint { margin: 0 0 8px; line-height: 1.35; color: var(--text-secondary); }
+.map3d-card .err { margin: 0 0 8px; color: var(--status-critical); }
+.map3d-card dl { margin: 0 0 8px; }
+.map3d-card dl > div { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.map3d-card dt { color: var(--text-secondary); }
+.map3d-card dd { margin: 0; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.map3d-card label { display: flex; align-items: flex-start; gap: 6px; padding: 3px 0; line-height: 1.3; color: var(--text-secondary); cursor: pointer; }
+.map3d-card input { margin: 2px 0 0; accent-color: var(--accent); }
+.map3d-card hr { margin: 5px 0; border: 0; border-top: 1px solid var(--axis); }
+.map3d-card .check { margin-bottom: 7px; }
+.app .map3d-card .again { width: 100%; padding: 5px; border: 1px solid var(--axis); border-radius: 5px; background: var(--surface-2); color: var(--text-primary); font-size: 12px; cursor: pointer; }
+.app .map3d-card .again:hover { border-color: var(--accent); }
+.map3d-profile { position: absolute; z-index: 2; left: 10px; right: 82px; bottom: 26px; height: min(190px, 42cqh); display: flex; flex-direction: column; padding: 8px 10px 4px; border: 1px solid var(--axis); border-radius: 8px; background: rgba(9, 22, 19, .94); }
+.map3d-profile .stats { flex: none; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; margin-bottom: 4px; font-size: 12px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.map3d-profile .stats em { margin-right: 4px; font-style: normal; font-weight: 400; color: var(--text-secondary); }
+.map3d-profile .stats .src { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--text-muted); }
+.map3d-profile .plot { flex: 1; min-height: 0; }
 .dw-map-color { position: absolute; z-index: 800; left: 10px; top: 116px; }
 .app .dw-map-style-btn { width: 34px; height: 34px; padding: 0; display: grid; place-items: center; border-radius: 6px; cursor: pointer;
   background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--axis); }

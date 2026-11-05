@@ -1,0 +1,31 @@
+{
+  "name": "emc-pit-material-movement",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Уулын цулын шилжилт — ил уурхайн Cu-Mo материалын урсгал",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "lint": "next lint",
+    "data:excel": "python tools/build_excel.py",
+    "data:imdem": "python tools/build_im_dem.py",
+    "data:pitgrid": "python tools/build_pit_grid.py",
+    "data:pit": "\"C:\\Program Files\\ArcGIS\\Pro\\bin\\Python\\envs\\arcgispro-py3\\python.exe\" tools/build_pit_mesh.py",
+    "data:blocks": "python tools/build_block_mesh.py",
+    "data:truck": "python tools/build_truck.py",
+    "data:excavator": "python tools/build_excavator.py"
+  },
+  "dependencies": {
+    "@arcgis/core": "^4.34.0",
+    "next": "^15.5.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.7.0"
+  }
+}

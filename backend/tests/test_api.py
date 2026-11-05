@@ -58,16 +58,26 @@ def test_password_hash_roundtrip():
     assert verify_password("Эрдэнэт-2026", h) and not verify_password("x", h)
 
 
+def test_mine_app_requires_login(client):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    anon = TestClient(app)
+    for path in ("/uuliin-tsul/", "/data/excel.json", "/_next/static/x.js", "/logo.svg"):
+        assert anon.get(path).status_code == 401
+
+
 def test_departments_seeded(client):
     deps = client.get("/api/departments").json()
-    assert len(deps) == 7
+    assert len(deps) == 4
     assert deps[0]["code"] == "GMH"
 
 
 def test_import_dataset_and_stats(client):
     csv = "Огноо,Цооног,Гүн,RQD\n2025-01-05,DH-1,120.5,78\n2025-01-20,DH-2,98,65\n2025-02-03,DH-3,150,81\n"
     r = client.post(
-        "/api/departments/GHE/datasets/import",
+        "/api/departments/COM/datasets/import",
         files={"file": ("drill.csv", io.BytesIO(csv.encode("utf-8")), "text/csv")},
         data={"name": "Өрөмдлөг 2025"},
     )
@@ -109,7 +119,7 @@ def test_displacement_import_and_alarm(client):
 
 def test_dashboards_seeded(client):
     dashboards = client.get("/api/departments/GMH/dashboards").json()
-    assert len(dashboards) == 19
+    assert len(dashboards) == 18
     assert dashboards[0]["group"] == "Геологи"
 
 

@@ -13,7 +13,7 @@ import re
 import threading
 import time
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 from app.services import dashboard_extras
@@ -244,23 +244,27 @@ def _lit(v, ftype: str | None = None) -> str:
         return "NULL"
     if isinstance(v, bool):
         return "1" if v else "0"
-    if isinstance(v, (int, float)) and ftype != "esriFieldTypeString":
+    if isinstance(v, (int, float)) and ftype not in ("esriFieldTypeString", "esriFieldTypeDate"):
         return repr(v)
     if ftype == "esriFieldTypeDate" or isinstance(v, datetime):
         if isinstance(v, datetime):
             ts = v
         elif isinstance(v, (int, float)):
-            ts = datetime.fromtimestamp(v / 1000)  # epoch мс
+            ts = datetime.fromtimestamp(v / 1000, timezone.utc)  # epoch мс, ArcGIS UTC-ээр хадгалдаг
         else:
             ts = datetime.fromisoformat(str(v).replace("Z", ""))
         return f"timestamp '{ts:%Y-%m-%d %H:%M:%S}'"
     return "'" + str(v).replace("'", "''") + "'"
 
 
+# SQL-ийн нөөц үг нэртэй талбарыг («on», «cross») хашилтгүй бол ArcGIS 400 буцаадаг
+RESERVED_FIELDS = {"on", "cross", "in", "and", "or", "not", "by", "group", "order", "select", "from", "where", "as", "is", "null", "like", "between", "join", "table", "case", "end"}
+
+
 def _ident(name: str) -> str:
     if not name or any(c in name for c in "'\";()") or "--" in name:
         raise ArcGISError(f"Буруу талбарын нэр: {name}", 400)
-    return name
+    return f'"{name}"' if name.lower() in RESERVED_FIELDS else name
 
 
 def filter_to_sql(node: dict | None) -> str | None:

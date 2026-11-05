@@ -12,10 +12,13 @@ from .config import settings
 from .database import Base, SessionLocal, engine
 from .routers import analytics, dashboards, datasets, departments, displacement
 from .routers import auth as auth_router
-from .seed import seed_departments, apply_sections
+from .seed import seed_departments, apply_sections, remove_departments
 from .services import arcgis
 
 FRONTEND_DIST = (Path(__file__).resolve().parents[2] / "frontend" / "dist").resolve()
+# Цулын шилжилтийн 3D апп (uuliin_tsul): файлууд нь үндэс замаас (/data, /_next) уншигдана
+TSUL_OUT = (Path(__file__).resolve().parents[2] / "uuliin_tsul" / "out").resolve()
+TSUL_PATHS = ("/uuliin-tsul", "/_next/", "/data/", "/logo.svg")
 
 # Нэвтрэлгүйгээр хандаж болох API
 PUBLIC_API = {"/api/health", "/api/auth/login", "/api/auth/logout"}
@@ -40,6 +43,7 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         seed_departments(db)
         apply_sections(db)
+        remove_departments(db)
     yield
 
 
@@ -48,9 +52,10 @@ app = FastAPI(title="Эрдэнэт Үйлдвэр — Нэгдсэн систе
 
 @app.middleware("http")
 async def require_login(request: Request, call_next):
-    """/api/* бүх хүсэлтэд нэвтэрсэн сесс шаардана. ArcGIS асуулгад хэрэглэгчийн өөрийн token-ыг хэрэглэнэ."""
+    """/api/* болон цулын шилжилтийн аппын бүх хүсэлтэд нэвтэрсэн сесс шаардана. ArcGIS асуулгад хэрэглэгчийн өөрийн token-ыг хэрэглэнэ."""
     path = request.url.path
-    if not path.startswith("/api/") or path in PUBLIC_API or request.method == "OPTIONS":
+    protected = path.startswith("/api/") or path.startswith(TSUL_PATHS)
+    if not protected or path in PUBLIC_API or request.method == "OPTIONS":
         return await call_next(request)
     with SessionLocal() as db:
         sess = auth.get_session(db, request.cookies.get(auth.COOKIE))
@@ -74,6 +79,16 @@ for r in (auth_router, departments, datasets, dashboards, displacement, analytic
 @app.get("/api/health")
 def health():
     return {"ok": True}
+
+
+if TSUL_OUT.exists():
+    app.mount("/_next", StaticFiles(directory=TSUL_OUT / "_next"), name="tsul-next")
+    app.mount("/data", StaticFiles(directory=TSUL_OUT / "data"), name="tsul-data")
+    app.mount("/uuliin-tsul", StaticFiles(directory=TSUL_OUT, html=True), name="tsul")
+
+    @app.get("/logo.svg", include_in_schema=False)
+    def tsul_logo():
+        return FileResponse(TSUL_OUT / "logo.svg")
 
 
 # `npm run build` хийсэн бол frontend-ийг энэ серверээс шууд үйлчилнэ

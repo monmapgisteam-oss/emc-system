@@ -15,6 +15,14 @@ if not exist frontend\dist (
   popd
 )
 
+if not exist uuliin_tsul\out (
+  echo Цулын шилжилтийн апп бүтээж байна...
+  pushd uuliin_tsul
+  call npm install || goto :error
+  call npm run build || goto :error
+  popd
+)
+
 start "" http://localhost:8000
 cd backend
 .venv\Scripts\python -m uvicorn app.main:app --host 0.0.0.0 --port 8000

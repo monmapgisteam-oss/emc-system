@@ -1,0 +1,271 @@
+.strip {
+  position: absolute;
+  z-index: 20;
+  right: 12px;
+  bottom: 24px;
+  left: 12px;
+  pointer-events: none;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.track {
+  display: flex;
+  gap: 12px;
+  margin: 0;
+  padding: 3px 0 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  list-style: none;
+  scrollbar-color: #737b7e80 transparent;
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+  pointer-events: auto;
+}
+
+.item {
+  flex: 0 0 calc((100% - 48px) / 5);
+  min-width: 282px;
+  scroll-snap-align: start;
+}
+
+.card {
+  --truck-color: #f7d600;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  height: 120px;
+  margin: 0;
+  padding: 14px 14px 12px 15px;
+  border: 1px solid rgb(207 223 228 / 9%);
+  border-radius: 4px;
+  background: rgb(13 21 25 / 89%);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 16%);
+  color: var(--truck-color);
+  font: inherit;
+  text-align: left;
+  backdrop-filter: blur(5px);
+  box-sizing: border-box;
+}
+
+button.card {
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+button.card:hover {
+  border-color: var(--truck-color);
+  background: rgb(15 24 28 / 96%);
+}
+
+.card.selected {
+  border-color: var(--truck-color);
+  box-shadow: inset 0 -2px 0 var(--truck-color), 0 4px 16px rgb(0 0 0 / 16%);
+}
+
+.card:focus-visible,
+.track:focus-visible,
+.scrollButton:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.normal {
+  --truck-color: #f7d600;
+}
+
+.lowHazard {
+  --truck-color: #8bd12f;
+}
+
+.caution {
+  --truck-color: #ff850b;
+}
+
+.danger {
+  --truck-color: #ff4b19;
+}
+
+.unknown {
+  --truck-color: #a2c2b9;
+}
+
+.truck {
+  flex: 0 0 91px;
+  width: 91px;
+  height: 80px;
+  overflow: visible;
+  color: #f7c72f;
+}
+
+.details {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.name {
+  max-width: calc(100% - 22px);
+  margin-bottom: 3px;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 22px;
+  white-space: nowrap;
+}
+
+.loadState {
+  font-size: 12px;
+  line-height: 14px;
+  letter-spacing: .15px;
+}
+
+.metric {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.metric > svg,
+.smallBell,
+.smallBell > svg {
+  display: block;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+}
+
+.smallBell {
+  margin-right: -1px;
+}
+
+.alert,
+.unavailable {
+  position: absolute;
+  top: 16px;
+  right: 15px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.alert {
+  background: var(--truck-color);
+  color: #fff;
+}
+
+.alert > svg {
+  width: 19px;
+  height: 19px;
+}
+
+.unavailable {
+  border: 1px solid rgb(184 198 201 / 40%);
+  color: #a2c2b9;
+  font-size: 14px;
+}
+
+.navigation {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  display: flex;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+.scrollButton {
+  display: grid;
+  width: 30px;
+  height: 28px;
+  padding: 4px;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 17%);
+  border-radius: 4px;
+  background: rgb(13 21 25 / 93%);
+  color: #fff;
+  cursor: pointer;
+}
+
+.scrollButton:hover:enabled {
+  background: #28473f;
+}
+
+.scrollButton:disabled {
+  color: #6c8f86;
+  cursor: default;
+}
+
+.scrollButton > svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.emptyState {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 4px;
+  background: rgb(13 21 25 / 91%);
+  color: #e8f5f1;
+  font-size: 13px;
+  text-align: center;
+}
+
+@media (min-width: 2100px) {
+  .item {
+    flex-basis: calc((100% - 60px) / 6);
+  }
+}
+
+@media (max-width: 640px) {
+  .strip {
+    right: 8px;
+    bottom: 25px;
+    left: 8px;
+  }
+
+  .track {
+    gap: 8px;
+  }
+
+  .item {
+    flex-basis: 292px;
+    min-width: min(292px, calc(100vw - 24px));
+  }
+
+  .card {
+    gap: 10px;
+    padding-right: 12px;
+    padding-left: 11px;
+  }
+
+  .truck {
+    flex-basis: 87px;
+    width: 87px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.card {
+    transition: none;
+  }
+}

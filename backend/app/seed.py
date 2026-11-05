@@ -1,4 +1,4 @@
-"""Анхны тохиргоо: 7 хэлтэс үүсгэнэ. `--demo` өгвөл шилжилтийн туршилтын дата нэмнэ.
+"""Анхны тохиргоо: 4 хэлтэс үүсгэнэ. `--demo` өгвөл шилжилтийн туршилтын дата нэмнэ.
 
     python -m app.seed          # зөвхөн хэлтсүүд
     python -m app.seed --demo   # + туршилтын хяналтын цэгүүд (DEMO-*)
@@ -72,17 +72,6 @@ DEPARTMENTS = [
         ],
     },
     {
-        "code": "GHE",
-        "name": "Геологи хайгуулын экспедици",
-        "color": "#199e70",
-        "description": "Хайгуулын ажлын явц, өрөмдлөгийн төлөвлөгөө, гүйцэтгэл",
-        "links": [],
-        "dashboards": [
-            ("bb9364b96b7641418412fc8b522efad3", "Ажлын явц", "Хайгуул"),
-            ("21b264f5b7864776a180aa394fdb685a", "Геологи хайгуулын экспедици", "Хайгуул"),
-        ],
-    },
-    {
         "code": "BOH",
         "name": "Байгаль орчин, ногоон хөгжил",
         "color": "#c98500",
@@ -99,16 +88,6 @@ DEPARTMENTS = [
         ],
     },
     {
-        "code": "NHT",
-        "name": "Ногоон хөгжлийн төслийн нэгж",
-        "color": "#d55181",
-        "description": "Ногоон хөгжлийн төсөл, мод тарилт",
-        "links": [],
-        "dashboards": [
-            ("8e3c1a4ead5f4e24979e2a4ee911039f", "Ногоон хөгжил — модны бүртгэл", "Модны бүртгэл"),
-        ],
-    },
-    {
         "code": "HSE",
         "name": "ХАБЭА",
         "color": "#008300",
@@ -118,18 +97,13 @@ DEPARTMENTS = [
             ("5c194c8de5fe41b0951b15efb98a9cd6", "Хөдөлмөрийн аюулгүй байдал", "Аюулгүй байдал"),
         ],
     },
-    {
-        "code": "MEC",
-        "name": "Механик",
-        "color": "#9085e9",
-        "description": "Тоног төхөөрөмж, шугам хоолой, хяналтын тайлан 2018-2023",
-        "links": [],
-        "dashboards": [],
-    },
 ]
 
 # Эрдэнэтийн уурхайн орчим (туршилтын цэгүүдийн байршилд)
 PIT_LAT, PIT_LON = 49.021, 104.122
+
+
+REMOVED_DEPARTMENTS = ("MEC", "NHT", "GHE")
 
 
 def seed_departments(db) -> int:
@@ -147,6 +121,14 @@ def seed_departments(db) -> int:
         added += 1
     db.commit()
     return added
+
+
+def remove_departments(db) -> None:
+    """Цэснээс хасагдсан хэлтсийг өмнө үүссэн өгөгдлийн сангаас устгана. Байршуулсан өгөгдөлтэй бол хөндөхгүй."""
+    for dep in db.scalars(select(Department).where(Department.code.in_(REMOVED_DEPARTMENTS))):
+        if not dep.datasets:
+            db.delete(dep)
+    db.commit()
 
 
 def apply_sections(db) -> None:

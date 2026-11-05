@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useContext, useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import * as esri from "esri-leaflet";
 import "esri-leaflet-renderers"; // featureLayer-д service/webmap-ын тэмдэглэгээг хэрэглэнэ
@@ -8,6 +8,26 @@ import { escapeHtml, formatDate, PALETTE } from "./format";
 import { Panel } from "./widgets";
 import { addBasemapGallery, basemapKeyFor } from "../components/basemaps";
 import type { RuntimeFilter, Widget } from "./types";
+
+// ArcGIS 3D сан том тул зөвхөн 3D нээхэд ачаална
+const Map3D = lazy(() => import("./Map3D"));
+
+/** Зургийн 2D, 3D сэлгүүр */
+export function MapDimSwitch({ value, onChange }: { value: "2d" | "3d"; onChange: (v: "2d" | "3d") => void }) {
+  return (
+    <div className="map-dim" role="group" aria-label="Зургийн харагдац">
+      {(["2d", "3d"] as const).map((v) => (
+        <button key={v} className={value === v ? "on" : ""} aria-pressed={value === v} onClick={() => onChange(v)}>
+          {v.toUpperCase()}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export { Map3D };
+
+export type Extent4326 = { xmin: number; ymin: number; xmax: number; ymax: number };
 
 export type MapLayer = {
   id: string;
@@ -21,6 +41,9 @@ export type MapLayer = {
   labelField?: string | null;
   popup?: PopupSpec;
 };
+
+/** 2D-д талбараар будсан талбайн өнгө: 3D ижил өнгөөр зурна */
+export type PolyPaint = { field: string; colors: Map<string, string> };
 
 const ERDENET: L.LatLngExpression = [49.021, 104.122];
 
@@ -38,13 +61,28 @@ export function guardEarlyMove(fl: esri.FeatureLayer) {
   grid._activeCells = {};
 }
 
-const sqlLit = (v: unknown) => (typeof v === "number" ? String(v) : `'${String(v).replace(/'/g, "''")}'`);
+const stamp = (d: string) => `timestamp '${d.slice(0, 19).replace("T", " ")}'`;
+const sqlLit = (v: unknown) => {
+  // Огнооны талбарын утга ArcGIS-оос epoch мс-ээр ирдэг
+  if (typeof v === "number") return v > 6e11 && v < 4e12 ? stamp(new Date(v).toISOString()) : String(v);
+  return `'${String(v).replace(/'/g, "''")}'`;
+};
+
+/** SQL-ийн нөөц үг нэртэй талбарыг («on», «cross») хашилтгүй бол ArcGIS 400 буцаадаг */
+const RESERVED_FIELD = /^(on|cross|in|and|or|not|by|group|order|select|from|where|as|is|null|like|between|join|table|case|end)$/i;
 
 export function whereOf(base: string | null | undefined, filters: RuntimeFilter[]): string {
   const parts = base ? [`(${base})`] : [];
-  for (const f of filters) {
+  for (const raw of filters) {
+    const f = { ...raw, field: RESERVED_FIELD.test(raw.field) ? `"${raw.field}"` : raw.field };
     if (f.op === "contains" && f.values.length) {
       parts.push(`(${f.values.map((v) => `${f.field} LIKE ${sqlLit(`%${v}%`)}`).join(" OR ")})`);
+      continue;
+    }
+    if (f.op === "between") {
+      const [from, to] = f.values as (string | null)[];
+      if (from) parts.push(`${f.field} >= ${stamp(from)}`);
+      if (to) parts.push(`${f.field} <= ${stamp(to)}`);
       continue;
     }
     if (f.op !== "in" || !f.values.length) continue;
@@ -420,12 +458,17 @@ export default function MapWidget({ widget }: { widget: Widget }) {
   const colorKey = (layerId: string) => `color:${widget.id}:${layerId}`;
   const sizeKey = (layerId: string) => `size:${widget.id}:${layerId}`;
   const labelKey = (layerId: string) => `label:${widget.id}:${layerId}`;
-  const { filtersFor } = useDashboard();
+  const { filtersFor, geoFor } = useDashboard();
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const featureLayers = useRef<Map<string, { layer: esri.FeatureLayer; base?: string | null }>>(new Map());
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [dim, setDim] = useState<"2d" | "3d">("2d");
+  const [source, setSource] = useState<{ layers: MapLayer[]; token: string | null } | null>(null);
+  const polyPaint = useRef(new Map<string, PolyPaint>());
+  const labelOf = useRef(new Map<string, string | null>());
+  const [zoomTo, setZoomTo] = useState<Extent4326 | null>(null);
 
   // Давхарга тус бүрийн шүүлтүүр (targetId = "<mapId>#<layerId>")
   const filterKey = JSON.stringify(
@@ -456,6 +499,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
       .webmapLayers<{ layers: MapLayer[]; basemap: string[]; basemap_title: string | null; token: string | null }>(widget.itemId)
       .then(({ layers, basemap, basemap_title, token }) => {
         if (cancelled) return;
+        setSource({ layers, token });
         // Webmap-д тохируулсан Esri суурь зургаар эхэлж, хэрэглэгч gallery-ээс сольж болно
         removeGallery = addBasemapGallery(map, basemapKeyFor(basemap_title, basemap));
 
@@ -478,6 +522,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
             const baseR = POINT_SIZES[prefs.get(sizeKey(lyr.id)) ?? (pref ? "m" : "s")] ?? POINT_SIZES.m;
             const radius = () => baseR * zoomFactor(map.getZoom());
             const colors = new Map<string, string>();
+            polyPaint.current.delete(lyr.id);
             const keyOf = (v: unknown) => (v === null || v === undefined || v === "" ? "Хоосон" : String(v));
             // Талбайг ангиллаар: хагас тунгалаг дүүргэлт + ижил өнгийн нарийн хүрээ; мэдээлэлгүй хүрээ бүдэг тасархай
             const polyStyle = (f?: { properties?: Record<string, unknown> }) => {
@@ -532,13 +577,16 @@ export default function MapWidget({ widget }: { widget: Widget }) {
               const labelBy = labelPref === NO_LABEL ? undefined : labelPref ?? labelDef;
               (info.fields ?? []).forEach((f) => meta.fields.set(f.name, f));
               meta.labelField = labelBy ?? labelDef;
+              labelOf.current.set(lyr.id, labelBy ?? null);
               if (labelBy) attachLabels(map, fl, labelBy);
               if (colorBy && (point || polyColor)) {
                 colorScale(lyr.url, token, whereOf(lyr.definitionExpression, []), colorBy).then((items) => {
                   if (cancelled) return;
                   items.forEach((it) => colors.set(it.value, it.color));
-                  if (polyColor) (fl as unknown as { setStyle: (s: typeof polyStyle) => void }).setStyle(polyStyle);
-                  else fl.eachFeature?.((m: L.Layer) => {
+                  if (polyColor) {
+                    polyPaint.current.set(lyr.id, { field: colorBy, colors });
+                    (fl as unknown as { setStyle: (s: typeof polyStyle) => void }).setStyle(polyStyle);
+                  } else fl.eachFeature?.((m: L.Layer) => {
                     const feat = (m as L.Layer & { feature?: { properties: Record<string, unknown> } }).feature;
                     const v = feat?.properties[colorBy];
                     (m as L.CircleMarker).setStyle?.({ fillColor: colors.get(v === null || v === undefined || v === "" ? "Хоосон" : String(v)) ?? "#8a9a96" });
@@ -637,6 +685,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
     ro.observe(el.current);
     return () => {
       cancelled = true;
+      setSource(null);
       setPickers([]);
       setLegends([]);
       removeGallery?.();
@@ -648,6 +697,35 @@ export default function MapWidget({ widget }: { widget: Widget }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [widget.itemId, widget.id, prefs.version]);
 
+  // Аймаг, сум сонгоход зураг тухайн хил рүү очно
+  const geo = geoFor(widget.id);
+  const geoKey = JSON.stringify(geo);
+  useEffect(() => {
+    if (!source) return;
+    if (!geo.length) {
+      if (zoomTo && home.current) mapRef.current?.fitBounds(home.current, { padding: [24, 24], maxZoom: 17 });
+      setZoomTo(null);
+      return;
+    }
+    const ctrl = new AbortController();
+    Promise.all(
+      geo.map(({ layerId, sel }) => {
+        const lyr = source.layers.find((l) => l.id === layerId);
+        if (!lyr) return null;
+        const params = new URLSearchParams({ where: whereOf(lyr.definitionExpression, [sel]), returnExtentOnly: "true", outSR: "4326", f: "json", ...(source.token ? { token: source.token } : {}) });
+        return fetch(`${lyr.url}/query?${params}`, { signal: ctrl.signal }).then((r) => r.json()).then((d) => d.extent as Extent4326 | undefined, () => undefined);
+      }),
+    ).then((found) => {
+      const list = found.filter((e): e is Extent4326 => Boolean(e && Number.isFinite(e.xmin)));
+      if (ctrl.signal.aborted || !list.length) return;
+      const extent = { xmin: Math.min(...list.map((e) => e.xmin)), ymin: Math.min(...list.map((e) => e.ymin)), xmax: Math.max(...list.map((e) => e.xmax)), ymax: Math.max(...list.map((e) => e.ymax)) };
+      mapRef.current?.fitBounds([[extent.ymin, extent.xmin], [extent.ymax, extent.xmax]], { padding: [24, 24] });
+      setZoomTo(extent);
+    });
+    return () => ctrl.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geoKey, source]);
+
   // Шүүлтүүр өөрчлөгдөхөд feature давхаргын where-г шинэчилнэ
   useEffect(() => {
     for (const [id, { layer, base }] of featureLayers.current) {
@@ -658,8 +736,24 @@ export default function MapWidget({ widget }: { widget: Widget }) {
 
   return (
     <Panel widget={widget} loading={loading} error={error} tight>
-      <div className="dw-map-wrap">
+      <div className={`dw-map-wrap ${dim === "3d" ? "is-3d" : ""}`}>
         <div ref={el} className="dw-map" />
+        {source && mapRef.current && <MapDimSwitch value={dim} onChange={setDim} />}
+        {dim === "3d" && source && mapRef.current && (
+          <Suspense fallback={<div className="map3d-wait">3D ачаалж байна…</div>}>
+            <Map3D
+              layers={source.layers}
+              token={source.token}
+              start={{ lat: mapRef.current.getCenter().lat, lng: mapRef.current.getCenter().lng, zoom: mapRef.current.getZoom() }}
+              onClose={({ lat, lng, zoom }) => mapRef.current?.setView([lat, lng], zoom, { animate: false })}
+              filtersFor={(id) => filtersFor(`${widget.id}#${id}`, widget.id)}
+              filterKey={filterKey}
+              polyPaint={polyPaint.current}
+              labelOf={labelOf.current}
+              zoomTo={zoomTo}
+            />
+          </Suspense>
+        )}
         {pickers.length > 0 && (
           <div className={`dw-map-color ${styleOpen ? "open" : ""}`}>
             <button className="dw-map-style-btn" onClick={() => setStyleOpen(!styleOpen)} title="Тэмдэглэгээ, шошго" aria-expanded={styleOpen}>

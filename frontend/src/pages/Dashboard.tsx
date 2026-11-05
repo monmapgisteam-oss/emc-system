@@ -28,7 +28,7 @@ function VelocityTrend({ trends, warn, alarm }: { trends: Trend[]; warn?: number
     <div className="trend">
       <div className="legend trend-legend">
         {trends.map((t) => (
-          <span key={t.id} onClick={() => navigate(`/displacement?point=${t.id}`)}>
+          <span key={t.id} onClick={() => navigate(`/displacement/points?point=${t.id}`)}>
             <i style={{ background: t.color }} />
             {shortCode(t.code)}
           </span>
@@ -165,7 +165,7 @@ export default function Dashboard() {
           height="100%"
           // Төлөвийн мөр (дээр), цэгийн жагсаалт (баруун), хурдны график (доор)-ын ард цэг орохгүй
           fitPad={(size) => ({ topLeft: [60, 80], bottomRight: [size.x < 1000 ? 260 : 310, Math.max(Math.round(size.y * 0.28), 160) + 40] })}
-          onSelect={(id) => navigate(`/displacement?point=${id}`)}
+          onSelect={(id) => navigate(`/displacement/points?point=${id}`)}
           points={points
             .filter((p) => p.lat !== null && p.lon !== null)
             .map((p) => ({
@@ -212,7 +212,7 @@ export default function Dashboard() {
                   <li
                     key={p.id}
                     className={st}
-                    onClick={() => navigate(`/displacement?point=${p.id}`)}
+                    onClick={() => navigate(`/displacement/points?point=${p.id}`)}
                     title={`${p.code}${p.sector ? ` · ${p.sector}` : ""} — ${STATUS[st].label}`}
                   >
                     <span className="dot" style={{ background: STATUS_HEX[st] }} />

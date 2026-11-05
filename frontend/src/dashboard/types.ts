@@ -96,6 +96,10 @@ export type Widget = {
     evenTicks?: boolean; // утгын тэнхлэгийн тоо жигд алхамтай
     yearBin?: boolean; // огноог он болгон нэгтгэнэ
     peakLabels?: boolean; // шугамын тоог зөвхөн оргилд бичнэ
+    wideColumns?: boolean; // босоо багана өргөн, цөөн ангилалд ч панелиа дүүргэнэ
+    wrapCats?: boolean; // босоо баганын нэр хэвтээ, мөрөөр хуваагдана; багтахгүй бол босоо
+    catAxisHeight?: number; // босоо бичсэн нэрийн тэнхлэгийн өндөр, px
+    wholeValues?: boolean; // тоог «64.2 мян» биш «64,187» гэж бүхлээр
     endLabelInside?: boolean; // шугамын сүүлийн тоо захаас гарахгүй
     stagedSplit?: boolean; // splitBy нь дараалсан үе: 1, 2, 3... тайлбар дарааллаар, шугам залгаатай
     ratio?: { key: string; num: string; den: string; factor: number }; // тооцсон утга: num / den * factor
@@ -164,4 +168,4 @@ export type QueryResult = { rows: Record<string, unknown>[]; fields: Field[]; la
 export type RuntimeFilter = { field: string; op: "in" | "between" | "contains"; values: unknown[] };
 
 /** Сонголт хийсэн виджет (эх үүсвэр) → түүний сонгосон утгууд */
-export type Selection = { field: string; op: "in" | "between" | "contains"; values: unknown[] };
+export type Selection = { field: string; op: "in" | "between" | "contains"; values: unknown[]; shown?: unknown[] };

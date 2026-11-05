@@ -1,6 +1,6 @@
 # Эрдэнэт Үйлдвэр — Нэгдсэн мэдээллийн систем
 
-7 хэлтсийн ArcGIS Online dashboard, Excel/CSV дата, дүн шинжилгээ, уулын цулын шилжилтийн мониторингийг
+4 хэлтсийн ArcGIS Online dashboard, Excel/CSV дата, уулын цулын шилжилтийн мониторингийг
 нэг дор нэгтгэсэн веб систем.
 
 ## Бүтэц
@@ -11,13 +11,14 @@ emc_system/
 │   ├── app/
 │   │   ├── main.py             API сервер, frontend/dist-ийг үйлчилнэ
 │   │   ├── models.py           Хэлтэс, Dataset, Record, MonitoringPoint, Measurement
-│   │   ├── seed.py             7 хэлтсийн жагсаалт (нэр, өнгө, ArcGIS линк энд засна)
+│   │   ├── seed.py             4 хэлтсийн жагсаалт (нэр, өнгө, ArcGIS линк энд засна)
 │   │   ├── routers/            departments, datasets, dashboards, displacement, analytics
 │   │   └── services/
 │   │       ├── arcgis.py       ArcGIS Online: dashboard тодорхойлолт, live асуулга, шүүлтүүр → SQL
 │   │       ├── importer.py     Excel/CSV унших
 │   │       └── displacement.py Шилжилт, хурд, хурдатгал, Fukuzono урьдчилсан тооцоо
 │   └── tests/
+├── uuliin_tsul/        Цулын шилжилтийн 3D апп (`out/` хавтсыг сервер үйлчилнэ)
 └── frontend/           React + TypeScript + Vite, Leaflet (+esri-leaflet) газрын зураг, Recharts график
     └── src/dashboard/  ArcGIS dashboard-ыг системийн загвараар зурагч (layout, виджет, шүүлтүүр)
 ```
@@ -43,7 +44,13 @@ npm run dev        # → http://localhost:5173
 ```powershell
 cd backend;  python -m venv .venv;  .venv\Scripts\pip install -r requirements.txt
 cd ..\frontend;  npm install;  npm run build
+cd ..\uuliin_tsul;  npm install;  npm run build
 ```
+
+`uuliin_tsul/` нь «Цулын шилжилт» цэсний 3D апп (Next.js, ArcGIS Maps SDK). Хуулбарын эх нь
+`monmapgisteam-oss/EMC` репо. Ялгаа нь `next.config.mjs` дахь `output: "export"`, шөнийн горимын
+номин ногоон өнгө (`app/globals.css`, `lib/config.ts`), үндсэн горим шөнийнх.
+Статик файлуудыг сервер нэвтэрсэн хэрэглэгчид л үйлчилнэ.
 
 ## Нэвтрэлт
 
@@ -66,17 +73,14 @@ HTTPS дээр ажиллуулахдаа `EMC_COOKIE_SECURE=1` тохируул
 
 ## Хэлтсүүд
 
-«EMC united HUB»-ын «Нэгдсэн систем» цэсийн 7 нэгж:
+«EMC united HUB»-ын «Нэгдсэн систем» цэсийн 4 нэгж:
 
 | Код | Хэлтэс                         | Dashboard |
 |-----|--------------------------------|-----------|
 | GMH | Геологи, маркшейдер            | 19 (Геологи · Уул уурхай · Хаягдлын далан · Кадастр) |
 | COM | Холбоо шугамын байгууламж      | 3 |
-| GHE | Геологи хайгуулын экспедици    | 2 |
 | BOH | Байгаль орчин, ногоон хөгжил   | 7 |
-| NHT | Ногоон хөгжлийн төслийн нэгж   | 1 |
 | HSE | ХАБЭА                          | 1 |
-| MEC | Механик                        | 0 |
 
 Нэр, тайлбар, линк, анхны dashboard жагсаалт: `backend/app/seed.py`. Ажиллаж байх үед хэлтсийн хуудасны
 «+ Dashboard нэмэх» товчоор ArcGIS dashboard-ын URL оруулж нэмнэ.

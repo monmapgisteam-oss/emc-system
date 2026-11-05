@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import * as esri from "esri-leaflet";
 import "esri-leaflet-renderers";
@@ -20,6 +20,8 @@ import {
   serviceLabelField,
   SYSTEM_FIELD,
   whereOf,
+  Map3D,
+  MapDimSwitch,
 } from "../dashboard/MapWidget";
 import { displayValue, formatDate, stripHtml } from "../dashboard/format";
 import type { Field } from "../dashboard/types";
@@ -404,6 +406,7 @@ export default function Geodata() {
   const [sort, setSort] = useState<{ f: string; desc: boolean } | null>(null);
   const [selected, setSelected] = useState<{ layerId: string; id: unknown } | null>(null);
   const [measure, setMeasure] = useState<Measure | null>(null);
+  const [dim, setDim] = useState<"2d" | "3d">("2d");
   const coordEl = useRef<HTMLDivElement>(null);
   const homeBounds = useRef<L.LatLngBounds | null>(null);
   const defaults = useRef<string[]>([]);
@@ -979,8 +982,21 @@ export default function Geodata() {
     <>
       {error && <div className="page error">{error}</div>}
       <GeoCtx.Provider value={ctx}>
-      <div className={`geo ${measure ? "measuring" : ""}`} ref={wrap}>
+      <div className={`geo ${measure ? "measuring" : ""} ${dim === "3d" ? "is-3d" : ""}`} ref={wrap}>
         <div ref={el} className="dw-map" />
+        {data && mapRef.current && <MapDimSwitch value={dim} onChange={setDim} />}
+        {dim === "3d" && data && mapRef.current && (
+          <Suspense fallback={<div className="map3d-wait">3D ачаалж байна…</div>}>
+            <Map3D
+              layers={active}
+              token={data.token}
+              layerList={false}
+              insetLeft={330}
+              start={{ lat: mapRef.current.getCenter().lat, lng: mapRef.current.getCenter().lng, zoom: mapRef.current.getZoom() }}
+              onClose={({ lat, lng, zoom }) => mapRef.current?.setView([lat, lng], zoom, { animate: false })}
+            />
+          </Suspense>
+        )}
 
         <div className={`geo-coord ${panel ? "" : "wide"}`} ref={coordEl} aria-hidden />
 

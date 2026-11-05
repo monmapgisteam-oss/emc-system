@@ -4,10 +4,10 @@ import { api, AuthUser, Department, prefetchDepartment, UNAUTHORIZED_EVENT } fro
 import Login from "./pages/Login";
 import Monitor from "./pages/Dashboard";
 import DepartmentPage from "./pages/DepartmentPage";
-import Analytics from "./pages/Analytics";
 import Displacement from "./pages/Displacement";
+import MineMovement from "./pages/MineMovement";
 import Geodata from "./pages/Geodata";
-import { DeptIcon, IconChart, IconDatabase, IconHome, IconMountain } from "./components/icons";
+import { DeptIcon, IconDatabase, IconHome, IconMountain } from "./components/icons";
 import UpdateBanner from "./components/UpdateBanner";
 import WorkspaceSearch from "./components/WorkspaceSearch";
 
@@ -15,17 +15,14 @@ import WorkspaceSearch from "./components/WorkspaceSearch";
 const DEPT_SHORT: Record<string, string> = {
   GMH: "Геологи, маркшейдер",
   COM: "Холбоо шугам",
-  GHE: "Геологи хайгуул",
   BOH: "Байгаль орчин",
-  NHT: "Ногоон хөгжил",
   HSE: "ХАБЭА",
-  MEC: "Механик",
 };
 
 const PAGE_TITLES: Record<string, string> = {
   "/monitor": "Хяналтын самбар",
   "/displacement": "Уулын цулын шилжилт",
-  "/analytics": "Дүн шинжилгээ",
+  "/displacement/points": "Шилжилтийн хяналтын цэгүүд",
   "/geodata": "Геомэдээллийн сан",
 };
 
@@ -91,10 +88,6 @@ function Shell({ user, departments, onLogout }: { user: AuthUser; departments: D
             <IconMountain size={20} />
             <span>Цулын шилжилт</span>
           </NavLink>
-          <NavLink to="/analytics" title="Дүн шинжилгээ">
-            <IconChart size={20} />
-            <span>Дүн шинжилгээ</span>
-          </NavLink>
           <NavLink to="/geodata" title="Геомэдээллийн сан">
             <IconDatabase size={20} />
             <span>Геомэдээллийн сан</span>
@@ -107,8 +100,8 @@ function Shell({ user, departments, onLogout }: { user: AuthUser; departments: D
           {/* Нэвтэрсний дараа шууд үндсэн систем — тусдаа нүүр хуудасгүй */}
           <Route path="/" element={<Navigate to="/monitor" replace />} />
           <Route path="/monitor" element={<Monitor />} />
-          <Route path="/analytics" element={<div className="page"><Analytics departments={departments} /></div>} />
-          <Route path="/displacement" element={<Displacement />} />
+          <Route path="/displacement" element={<MineMovement />} />
+          <Route path="/displacement/points" element={<Displacement />} />
           <Route path="/geodata" element={<Geodata />} />
           <Route path="/dept/:code" element={<DepartmentPage departments={departments} />} />
           <Route path="*" element={<div className="page empty">Хуудас олдсонгүй</div>} />

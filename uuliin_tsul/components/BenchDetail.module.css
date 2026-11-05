@@ -1,0 +1,73 @@
+.card { padding: 8px 10px; min-width: 0; }
+.context { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; font-size: 11.5px; }
+.month { color: var(--ink-2); }
+.blocks { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; color: var(--ink-2); }
+.blocks > span { margin-right: 3px; }
+.blocks button { padding: 2px 7px; border: 1px solid var(--line); border-radius: 5px; color: var(--ink-2); font-size: 11px; }
+.blocks button[aria-pressed="true"] { background: var(--ui-soft); border-color: var(--ui-soft); color: var(--ui-ink); font-weight: 600; }
+.summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 1px solid color-mix(in srgb, var(--ui) 24%, var(--line-soft)); border-radius: 8px; padding: 8px; background: linear-gradient(120deg, color-mix(in srgb, var(--ui) 7%, var(--surface)), var(--surface)); }
+.total > span { color: var(--ink-2); font-size: 12px; }
+.total > div { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 6px; margin-top: 1px; }
+.total strong { font: 600 17px/1.3 "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
+.total > div > span { font-size: 11px; color: var(--ink-2); }
+.grades { display: grid; gap: 5px; margin: 0; padding-left: 10px; border-left: 1px solid var(--line-soft); }
+.grades > div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.grades dt { font-size: 11.5px; color: var(--ink-2); }
+.grades abbr { text-decoration: none; }
+.grades dd { margin: 0; font: 500 13px/1.35 "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.grades > div:first-child dd { color: var(--accent-ink); }
+.sectionLabel { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; margin: 10px 0 7px; font-size: 11.5px; color: var(--ink-2); }
+.sectionLabel button { color: var(--ui-ink); font-size: 11px; padding: 3px 0; }
+.groups { display: grid; gap: 7px; }
+/* Карт бүрийн хүрээ — `--line-soft` бараан дэвсгэр дээр бараг үл
+   харагдаж байсан тул тод хүрээ + бага зэрэг өргөгдсөн дэвсгэр. */
+.group { border: 1px solid color-mix(in srgb, var(--ink-3) 45%, var(--line)); border-radius: 7px; overflow: hidden;
+  background: color-mix(in srgb, var(--surface-2) 60%, var(--surface)); }
+.group h3 { margin: 0; font-size: inherit; font-weight: inherit; }
+.groupToggle { width: 100%; display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; gap: 7px; padding: 9px 8px; text-align: left; color: var(--ink); }
+.groupToggle:hover { background: var(--sunken); }
+.groupToggle svg { width: 12px; height: 12px; color: var(--ink-2); transition: transform .15s; }
+.groupToggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.groupToggle[aria-expanded="true"] { background: var(--surface-2); }
+.groupTitle { font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; text-transform: uppercase; }
+.groupAmount { display: grid; justify-items: end; gap: 1px; }
+.groupAmount b { font: 500 13px/1.35 "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.groupAmount small { font-size: 10px; color: var(--ink-2); white-space: nowrap; }
+.groupBody { border-top: 1px solid var(--line); padding: 0 10px; }
+.note { margin: 9px 0 0; font-size: 11.5px; color: var(--ink-2); }
+.rows { margin: 0; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+.row:last-child { border-bottom: 0; }
+.row dt { color: var(--ink-2); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.row dd { margin: 0; }
+.amount { text-align: right; font: 500 13px/1.4 "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.amount small { display: block; font: 400 10px/1.4 "Golos Text", sans-serif; color: var(--ink-2); }
+.rowGrades { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-2); font-size: 11px; }
+.rowGrades b { font: 400 11px/1.4 "IBM Plex Mono", monospace; color: var(--ink); font-variant-numeric: tabular-nums; }
+.rowGrades abbr { text-decoration: none; }
+/* Keep the existing row heights; hierarchy and grade columns use the same space. */
+.reserveGroup { container-type: inline-size; }
+.reserveGroup .row { position: relative; }
+.reserveGroup .row dt { color: var(--ink); }
+.reserveTotal { background: color-mix(in srgb, var(--ui) 5%, transparent); box-shadow: -10px 0 color-mix(in srgb, var(--ui) 5%, transparent), 10px 0 color-mix(in srgb, var(--ui) 5%, transparent); }
+.reserveTotal dt { font-weight: 600; }
+.reserveTotal .amount { color: var(--ui-ink); font-weight: 600; }
+.reservePart::before { content: ""; position: absolute; left: -7px; top: 0; width: 4px; height: 19px; border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.reservePart:not(:last-child)::after { content: ""; position: absolute; left: -7px; top: 19px; bottom: 0; border-left: 1px solid var(--line); }
+.rowHint, .gradeName { display: none; }
+.reserveGroup .rowGrades { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
+.reserveGroup .rowGrades > span { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; white-space: nowrap; }
+.reserveGroup .rowGrades > span + span { position: relative; }
+.reserveGroup .rowGrades > span + span::before { content: ""; position: absolute; left: -7px; top: 2px; bottom: 2px; border-left: 1px solid var(--line); }
+.reserveGroup .rowGrades > span:first-child b { color: var(--accent-ink); }
+@container (min-width: 300px) {
+  .reserveGroup .rowHint { display: block; color: var(--ink-2); font-size: 9.5px; line-height: 1.25; }
+  .reserveGroup .gradeSymbol { display: none; }
+  .reserveGroup .gradeName { display: inline; }
+}
+.rates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0 0 10px; }
+.rates > div { background: var(--sunken); border-radius: 5px; padding: 8px; }
+.rates dt { font-size: 11.5px; color: var(--ink-2); }
+.rates dd { margin: 4px 0 0; font: 500 14px/1.4 "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+.rates small { margin-left: 4px; font-size: 11px; color: var(--ink-2); }
+.card button:focus-visible { outline: 2px solid var(--ui); outline-offset: -2px; }
