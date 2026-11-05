@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 
@@ -73,8 +73,21 @@ async def require_login(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"], allow_credentials=True
 )
+
+
+class AppGZip(GZipMiddleware):
+    """Цулын аппын хоёртын файлууд (glb, bin — 32 MB) шахагдахгүй: хэмжээ нь бараг багасахгүй, event loop-ыг эзэлнэ."""
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "")
+        if scope["type"] == "http" and path.startswith("/data/") and not path.endswith(".json"):
+            await self.app(scope, receive, send)
+        else:
+            await super().__call__(scope, receive, send)
+
+
 # Dashboard-ын тодорхойлолт, frontend-ийн JS нь шахахад 10 дахин хүртэл багасна
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+app.add_middleware(AppGZip, minimum_size=1024, compresslevel=6)
 
 for r in (auth_router, departments, datasets, dashboards, displacement, analytics):
     app.include_router(r.router)
@@ -93,6 +106,17 @@ if TSUL_OUT.exists():
     @app.get("/logo.svg", include_in_schema=False)
     def tsul_logo():
         return FileResponse(TSUL_OUT / "logo.svg")
+
+
+@app.get("/uuliin-tsul/{path:path}", include_in_schema=False)
+def tsul_not_built(path: str):
+    """Бүтээсэн бол дээрх mount хариулна. Эс бөгөөс SPA iframe дотор системийг өөрийг нь зурахгүй."""
+    return HTMLResponse(
+        '<body style="background:#0b1512;color:#c9d6d2;font:14px sans-serif;padding:32px">'
+        "Цулын шилжилтийн апп бүтээгдээгүй байна. <code>uuliin_tsul</code> хавтаст "
+        "<code>npm install</code>, <code>npm run build</code> ажиллуулаад серверийг дахин асаана уу.</body>",
+        status_code=503,
+    )
 
 
 # `npm run build` хийсэн бол frontend-ийг энэ серверээс шууд үйлчилнэ

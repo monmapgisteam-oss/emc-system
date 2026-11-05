@@ -72,10 +72,19 @@ const DEST_DEF: Record<DestCode, { name: string; col: number; color: string }> =
   HOOSON: { name: "Овоолго №1, 4, 11",  col: C.HOOSON, color: TRUCK_COLOR.waste },
 };
 
-/* Файлыг НЭГ л удаа татна — маршрут ба зогсоолын машин хоёулаа эндээс. */
+/* Файлыг НЭГ л удаа татна — маршрут ба зогсоолын машин хоёулаа эндээс.
+   Алдаа санагдахгүй: нэг удаагийн тасалдал машинуудыг хуудас дахин ачаалтал алга болгохгүй. */
 let rawP: Promise<any> | null = null;
 function rawRoutes(): Promise<any> {
-  rawP ??= fetch("/data/haul_routes.json").then((r) => r.json()).catch(() => ({}));
+  rawP ??= fetch("/data/haul_routes.json")
+    .then((r) => {
+      if (!r.ok) throw new Error(`haul_routes ${r.status}`);
+      return r.json();
+    })
+    .catch(() => {
+      rawP = null;
+      return {};
+    });
   return rawP;
 }
 

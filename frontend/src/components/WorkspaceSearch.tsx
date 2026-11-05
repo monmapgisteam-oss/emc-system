@@ -10,6 +10,7 @@ type Hit = { key: string; title: string; hint?: string; to: string };
 const PAGES: Hit[] = [
   { key: "monitor", title: "Хяналтын самбар", to: "/monitor" },
   { key: "displacement", title: "Уулын цулын шилжилт", to: "/displacement" },
+  { key: "displacement-points", title: "Шилжилтийн хяналтын цэгүүд", to: "/displacement/points" },
   { key: "geodata", title: "Геомэдээллийн сан", to: "/geodata" },
 ];
 

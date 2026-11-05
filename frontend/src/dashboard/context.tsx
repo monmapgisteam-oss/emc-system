@@ -90,8 +90,10 @@ function buildLinks(def: DashboardDef): Map<string, Link[]> {
         .map(([targetId]) => ({ targetId }));
     }
     for (const t of targets) add(t.targetId, { sourceId: w.id, fieldMap: t.fieldMap });
-    // Зураг: шүүгдэж буй давхарга зурагт байвал түүнийг ч шүүнэ
-    const sources: [string | null, Link["fieldMap"]][] = [[own, undefined], ...targets.map((t) => [layerOf.get(t.targetId) ?? null, t.fieldMap] as [string | null, Link["fieldMap"]])];
+    // Зураг: шүүгдэж буй давхарга зурагт байвал түүнийг ч шүүнэ. Сервер холбоосыг бэлдсэн бол (linksComplete) талбар нь
+    // мэдэгдэж буй давхаргад л: fieldMap-гүй өөр давхарга руу таамаглавал байхгүй талбараар асууж, давхарга нь алга болно
+    const known = def.linksComplete ? targets.filter((t) => t.fieldMap) : targets;
+    const sources: [string | null, Link["fieldMap"]][] = [[own, undefined], ...known.map((t) => [layerOf.get(t.targetId) ?? null, t.fieldMap] as [string | null, Link["fieldMap"]])];
     for (const [key, fieldMap] of sources) {
       if (!key) continue;
       const [itemId, layerId] = key.split("|");

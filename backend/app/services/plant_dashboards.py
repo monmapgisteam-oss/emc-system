@@ -188,7 +188,7 @@ def _tabs(tid: str, metrics: dict, charts: dict, group: list) -> dict:
     return {"type": "tabsLayoutElement", "id": tid, "width": 1, "height": 1, "elements": [_item(charts[slug]["id"], tabName=metrics[slug][2]) for slug in group]}
 
 
-def _build(item_id: str, prefix: str, title: str, url: str, metrics: dict, cards: list, winds: list, direction: str, tabs: list, standards: tuple = (), cards_on_top: bool = False) -> dict:
+def _build(item_id: str, prefix: str, title: str, url: str, metrics: dict, cards: list, winds: list, direction: str, tabs: list, firefly: str, standards: tuple = (), cards_on_top: bool = False) -> dict:
     source = {"type": "layerDataSource", "url": url, "where": HAS_NAME, "title": title}
     map_id = f"{prefix}-map"
     layer_id = f"{prefix}-layer"
@@ -216,6 +216,7 @@ def _build(item_id: str, prefix: str, title: str, url: str, metrics: dict, cards
         "name": title,
         "itemId": item_id,
         "clickFields": {layer_id: "Сорьцын_нэр"},
+        "firefly": firefly,
         "events": [{"type": "selectionChanged", "actions": [{"type": "filter", "targets": data_targets}]}],
     }
     widgets = [*indicators.values(), map_widget, pie, *charts.values()]
@@ -270,6 +271,7 @@ _DASHBOARDS = {
             ["po4", "zn", "sio2", "cr", "mn", "fe", "mo", "tds", "f", "hco3"],
             ["hard", "cl", "tair", "twater", "wind", "wind2"],
         ],
+        firefly="water",
         standards=WATER_STANDARDS,
     ),
     PLANT_AIR: _build(
@@ -286,6 +288,7 @@ _DASHBOARDS = {
             ["so2", "no2", "nox", "co", "no", "hc"],
             ["pressure", "tair", "wind", "wind2"],
         ],
+        firefly="white",
         cards_on_top=True,
     ),
 }

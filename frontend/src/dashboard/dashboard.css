@@ -374,6 +374,20 @@ body.dw-resizing-h .dw-panel, body.dw-resizing-v .dw-panel { pointer-events: non
 /* Газрын зураг дээрх шошго — хүрээгүй, цагаан хүрээтэй бичвэр (суурь зураг бүр дээр уншигдана) */
 .leaflet-tooltip.dw-map-label { background: transparent; border: 0; box-shadow: none; padding: 0; color: #17302b; font-size: 10.5px; font-weight: 700; line-height: 1.2; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff; pointer-events: none; }
 .leaflet-tooltip.dw-map-label::before { display: none; }
+/* Байгаль орчны зураг: бараан, хиймэл дагуулын суурь дээр цагаан бичиг, бараан хүрээ */
+.dw-env .leaflet-tooltip.dw-map-label { color: #f4f8f6; font-size: 11px; font-weight: 600; letter-spacing: 0.1px; width: max-content; max-width: 160px; overflow: visible; white-space: normal; text-shadow: 0 0 2px #000, 0 0 3px rgba(0, 0, 0, 0.95), 0 1px 4px rgba(0, 0, 0, 0.85); }
+/* ArcGIS Firefly тэмдэг: гэрэлтэлтийн хамт хэмжээ, төв нь координат дээр. Цагаан хувилбар байхгүй тул хамгийн цайвар эгнээг цайруулна */
+.dw-firefly { --ff: calc(var(--dw-firefly, 34px) * var(--ff-k, 1)); width: var(--ff); height: var(--ff); margin: calc(var(--ff) / -2) 0 0 calc(var(--ff) / -2); border-radius: 50%; background-position: center; background-size: contain; background-repeat: no-repeat; }
+.dw-firefly-s { --ff-k: 0.7; }
+.dw-firefly-l { --ff-k: 1.4; }
+.dw-firefly-cyan { background-image: url("https://static.arcgis.com/images/Symbols/Firefly/FireflyC9.png"); }
+.dw-firefly-water { background-image: url("https://static.arcgis.com/images/Symbols/Firefly/FireflyC7.png"); }
+.dw-firefly-purple { background-image: url("https://static.arcgis.com/images/Symbols/Firefly/FireflyC4.png"); }
+.dw-firefly-white { background-image: url("https://static.arcgis.com/images/Symbols/Firefly/FireflyA7.png"); filter: grayscale(1) brightness(1.6); }
+.dw-firefly:hover { filter: brightness(1.45); }
+.dw-firefly-white:hover { filter: grayscale(1) brightness(2.2); }
+.dw-firefly.dw-map-picked { box-shadow: 0 0 0 2px var(--accent); }
+.leaflet-marker-pane .leaflet-marker-icon.dw-firefly-dup { background-image: none; box-shadow: none; pointer-events: none; }
 .leaflet-overlay-pane path.dw-map-picked { stroke: var(--accent); stroke-width: 3.5px; stroke-opacity: 1; }
 .dw-map-ctl-lbl { font-size: 11px; color: var(--text-muted); flex: none; }
 .dw-indicator.low { padding: 2px 8px; gap: 1px; }
@@ -398,6 +412,7 @@ body.dw-resizing-h .dw-panel, body.dw-resizing-v .dw-panel { pointer-events: non
 .dw-popup th { font-size: 10.5px; }
 .dw-popup td { font-size: 12px; font-weight: 600; }
 .dw-map-wrap .leaflet-popup-content { min-width: 230px; }
+.dw-env .dw-map-wrap .leaflet-popup-content { max-height: max(140px, calc(var(--dw-map-h, 400px) - 90px)); overflow-y: auto; }
 
 /* Олон табтай мөрөнд нэр тасрахгүй: өргөн нь нэрийн уртаар, шаардлагатай бол 2 мөрт */
 .dw-tabstrip button:not(.dw-tabs-toggle) { flex: 1 1 auto; min-width: min-content; white-space: normal; line-height: 1.15; padding: 5px 6px; font-size: 11px; overflow-wrap: normal; word-break: keep-all; text-overflow: clip; }

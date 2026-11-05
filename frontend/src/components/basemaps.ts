@@ -24,6 +24,8 @@ export const BASEMAPS: BasemapDef[] = [
   // maxNativeZoom — Эрдэнэтийн орчимд Esri бодит зурагтай хамгийн том масштаб (2026-11 шалгасан).
   // Түүнээс цааш «Map data not yet available» гарахын оронд сүүлийн tile-ыг томруулж харуулна.
   { key: "imagery", title: "Хиймэл дагуул (Imagery)", base: [tile("World_Imagery")], maxNativeZoom: 17 },
+  // Өнгө багатай, бараан зураг: Firefly тэмдэгт зориулагдсан
+  { key: "firefly", title: "Хиймэл дагуул (Firefly)", base: ["https://fly.maptiles.arcgis.com/arcgis/rest/services/World_Imagery_Firefly/MapServer/tile/{z}/{y}/{x}"], maxNativeZoom: 17 },
   {
     key: "hybrid",
     title: "Хиймэл дагуул + нэр (Hybrid)",

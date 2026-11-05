@@ -56,6 +56,10 @@ export type Widget = {
   itemId?: string;
   /** Газрын зураг: давхарга бүрт объект дээр дарахад шүүх талбар */
   clickFields?: Record<string, string>;
+  /** Газрын зураг: цэгийг энэ өнгийн ArcGIS Firefly тэмдгээр зурна, суурь зураг нь Firefly */
+  firefly?: "cyan" | "water" | "purple" | "white";
+  /** Газрын зураг: цэг, шошго товчны доор, зургийн захаар тасрахгүй */
+  labelsInside?: boolean;
   // indicator
   defaultSettings?: {
     topSection?: { textInfo?: { text?: string } };
@@ -164,6 +168,7 @@ export type DashboardDef = {
   modified?: number;
   access?: string;
   theme?: string; // загварын нэр: .dw-<theme>
+  linksComplete?: boolean; // сервер холбоосыг бэлдсэн: frontend зургийн давхаргад талбар таамаглахгүй
   header?: { title?: string; selectors?: Widget[] };
   leftPanel?: { title?: string; selectors?: Widget[] };
   layout?: LayoutElement;

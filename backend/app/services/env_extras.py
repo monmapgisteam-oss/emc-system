@@ -134,7 +134,9 @@ def link_all(dash: dict) -> None:
     «Энэ талбар тэр давхаргад ийм нэртэй» гэдгийг ArcGIS-ийн одоогийн холбоосоос авна. Мэдэгдээгүй бол ижил нэрээр:
     сервер давхаргын талбарыг мэддэг тул байхгүй талбарын шүүлтүүрийг алгасна (`arcgis._plan`).
     Газрын зураг шууд ArcGIS рүү хандаж алдаа буцаадаг тул зөвхөн мэдэгдэж буй талбараар холбогдоно.
+    `linksComplete`: frontend зургийн өөр давхаргад талбар таамаглахгүй.
     """
+    dash["linksComplete"] = True
     selectors = [*((dash.get("header") or {}).get("selectors") or []), *((dash.get("leftPanel") or {}).get("selectors") or [])]
     everything = [*dash["widgets"], *selectors]
     by_id = {w["id"]: w for w in everything}
@@ -323,6 +325,8 @@ def env_style(dash: dict) -> None:
             _polish_card(w)
         elif w["type"] == "serialChartWidget":
             _polish_chart(w)
+        elif w["type"] == "mapWidget":
+            w["labelsInside"] = True
         elif w["type"] == "pieChartWidget" and "чиглэл" in (_group_field(w) or "").lower():
             # Салхины чиглэл: тайлбар баруун талд, бүх чиглэл харагдана
             w.setdefault("chartConfig", {})["fullLegend"] = True
@@ -449,11 +453,23 @@ def _air_standard_charts(dash: dict, dust: dict) -> None:
         dash["widgets"] = [*dash["widgets"], *(w for w, _ in charts)]
 
 
+def _firefly(color: str, run):
+    """Газрын зургийн цэг ArcGIS Firefly тэмдгээр. Өнгө: frontend-ийн `.dw-firefly-<color>`."""
+
+    def styled(dash: dict) -> None:
+        run(dash)
+        for w in dash["widgets"]:
+            if w["type"] == "mapWidget":
+                w["firefly"] = color
+
+    return styled
+
+
 EXTRAS = {
-    WATER: _monitor,
-    SOIL: _soil,
-    AIR: _air,
-    DUST: _dust,
+    WATER: _firefly("water", _monitor),
+    SOIL: _firefly("purple", _soil),
+    AIR: _firefly("white", _air),
+    DUST: _firefly("cyan", _dust),
     RECLAMATION: _plain,
     GROVE: _plain,
     TREES: _plain,

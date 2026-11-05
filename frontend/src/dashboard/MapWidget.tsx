@@ -56,13 +56,67 @@ pathProto._updateBounds ??= () => {};
  * сонсдог. Тэр хооронд зураг хөдөлбөл алдаа шидэж, бусад давхаргын шинэчлэл ч тасардаг тул хоосон торыг бэлдэнэ.
  */
 export function guardEarlyMove(fl: esri.FeatureLayer) {
-  const grid = fl as unknown as { _cells: object; _activeCells: object };
+  const grid = fl as unknown as { _cells: object; _activeCells: object; _map: L.Map | null; _resetView: (e?: unknown) => void };
   grid._cells = {};
   grid._activeCells = {};
+  // Сервисийн мэдээллийг хүлээж байх зуур зураг устсан бол (самбар солигдсон) зурж эхлэхгүй: plugin үүнийг шалгадаггүй
+  const resetView = grid._resetView;
+  grid._resetView = (e) => {
+    if (grid._map) resetView.call(grid, e);
+  };
 }
 
 /** Анхны харагдацыг тооцоолж дуустал суурь зураг, давхаргыг хүлээх дээд хугацаа */
 const FIRST_VIEW_WAIT_MS = 900;
+
+const FIREFLY_MERGE_PX = 12;
+
+/**
+ * Цэгийг ArcGIS Firefly тэмдгээр зурна. Зураг, хэмжээ нь CSS-д: томруулах бүрд олон цэгийн DOM-ыг дахин үүсгэхгүй.
+ * esri-leaflet-renderers цэгийн тэмдгийг сервисийнхээр дарж бичдэг тул тогтооно. Талбай, шугамын загварт хүрэхгүй.
+ */
+function drawPointsAsFirefly(map: L.Map, fl: esri.FeatureLayer, color: string, size: string) {
+  const icon = L.divIcon({
+    className: `dw-firefly dw-firefly-${color} dw-firefly-${size}`,
+    iconSize: null as unknown as L.PointExpression,
+    tooltipAnchor: [0, -6],
+    popupAnchor: [0, -6],
+  });
+  const marker = (_f: unknown, latlng: L.LatLng) => L.marker(latlng, { icon, riseOnHover: true, keyboard: false });
+  Object.defineProperty((fl as unknown as { options: object }).options, "pointToLayer", { get: () => marker, set: () => {} });
+
+  // Нэг байршилд олон бичлэг (сорьц бүр) байдаг: тунгалаг гэрэлтэлт давхарлаад хатуу дугуй болохгүйн тулд дэлгэц дээр
+  // ойрхон цэгүүдэд нэг тэмдэг. Томруулахад тусдаа байршлууд салж харагдана
+  const onePerPlace = () => {
+    const zoom = map.getZoom();
+    const markers: { element: HTMLElement; place: string }[] = [];
+    fl.eachFeature?.((l: L.Layer) => {
+      // Давхарга талбай, шугам байж болно: зөвхөн цэгт хамаатай
+      const element = l instanceof L.Marker ? l.getElement() : undefined;
+      if (!element) return;
+      const p = map.project((l as L.Marker).getLatLng(), zoom);
+      markers.push({ element, place: `${Math.round(p.x / FIREFLY_MERGE_PX)},${Math.round(p.y / FIREFLY_MERGE_PX)}` });
+    });
+    // Сонгосон цэг нэгдсэн тэмдгийн дотор нуугдахгүй
+    markers.sort((a, b) => Number(b.element.classList.contains("dw-map-picked")) - Number(a.element.classList.contains("dw-map-picked")));
+    const seen = new Set<string>();
+    for (const { element, place } of markers) {
+      element.classList.toggle("dw-firefly-dup", seen.has(place));
+      seen.add(place);
+    }
+  };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  fl.on("load dw-picked", onePerPlace);
+  map.on("zoomend", onePerPlace);
+  fl.on("addfeature createfeature removefeature", () => {
+    clearTimeout(timer);
+    timer = setTimeout(onePerPlace, 30);
+  });
+}
+
+/** Байгаль орчны зураг: анхны харагдацад цэг, шошго товчнуудын доор орохгүй */
+const fitPadding = (widget: Widget): L.FitBoundsOptions =>
+  widget.labelsInside ? { paddingTopLeft: [52, 70], paddingBottomRight: [52, 28] } : { padding: [24, 24] };
 
 /** Газрын зураг дээр сонгосон объектыг тодруулна: шүүлтүүр нь бусад виджетэд, зураг өөрөө бүгдийг харуулсаар */
 function paintPicked(fl: esri.FeatureLayer, field: string, selection?: Selection | null) {
@@ -71,6 +125,7 @@ function paintPicked(fl: esri.FeatureLayer, field: string, selection?: Selection
     const lay = m as L.Path & { feature?: { properties: Record<string, unknown> } };
     lay.getElement?.()?.classList.toggle("dw-map-picked", on.has(String(lay.feature?.properties[field])));
   });
+  fl.fire("dw-picked");
 }
 
 const stamp = (d: string) => `timestamp '${d.slice(0, 19).replace("T", " ")}'`;
@@ -292,7 +347,25 @@ type PlacedLabel = { x: number; y: number; w: number; text: string };
 /** Газрын зураг бүрийн давхарга тус бүрийн байрласан шошго — нэг цэг хоёр давхаргад (цэг + бүс) байвал нэг л шошго */
 const placedByMap = new WeakMap<L.Map, Map<esri.FeatureLayer, PlacedLabel[]>>();
 
-export function attachLabels(map: L.Map, fl: esri.FeatureLayer, field: string, pane?: string) {
+/** Цэгийн шошго зургийн захаар тасрах эсвэл товчны доор орохоор бол цэгийн хажуу эсвэл доор гарна */
+function keepLabelInside(map: L.Map, lay: LabelLayer, w: number) {
+  const tooltip = lay.getTooltip?.();
+  const ll = (lay as unknown as { getLatLng?: () => L.LatLng }).getLatLng?.();
+  if (!tooltip || !ll) return;
+  const { x, y } = map.latLngToContainerPoint(ll);
+  const edge = map.getSize().x;
+  // Зүүн дээд буланд томруулах, загварын товчнууд ба 2D/3D, баруун дээд буланд суурь зураг, давхаргын товчнууд
+  const leftSpace = y < 170 ? 56 : 6;
+  const rightSpace = y < 120 ? 60 : 6;
+  const underSwitch = x - w / 2 < 140 && y < 74;
+  const side = x - w / 2 < leftSpace ? "right" : x + w / 2 > edge - rightSpace ? "left" : y < 30 || underSwitch ? "bottom" : "top";
+  if (tooltip.options.direction === side) return;
+  tooltip.options.direction = side;
+  tooltip.options.offset = { right: L.point(10, 6), left: L.point(-10, 6), bottom: L.point(0, 12), top: L.point(0, -4) }[side];
+  tooltip.update();
+}
+
+export function attachLabels(map: L.Map, fl: esri.FeatureLayer, field: string, pane?: string, keepInside = false) {
   if (!placedByMap.has(map)) placedByMap.set(map, new Map());
   const registry = placedByMap.get(map)!;
   const update = () => {
@@ -329,6 +402,7 @@ export function attachLabels(map: L.Map, fl: esri.FeatureLayer, field: string, p
         if (!ll || (!fewPoints && map.getZoom() < 16)) return lay.closeTooltip();
         ({ x, y } = map.latLngToContainerPoint(ll));
         y -= 14; // шошго цэгийн дээр
+        if (keepInside && y < 0) y += 28; // дээд захад бол доор нь
         area = 0;
       }
       if (x < 0 || y < 0 || x > size.x || y > size.y) return lay.closeTooltip();
@@ -361,6 +435,7 @@ export function attachLabels(map: L.Map, fl: esri.FeatureLayer, field: string, p
       else {
         placed.push(c);
         c.lay.openTooltip();
+        if (keepInside && c.point) keepLabelInside(map, c.lay, c.w);
       }
     }
     registry.set(fl, placed);
@@ -382,6 +457,7 @@ export function attachLabels(map: L.Map, fl: esri.FeatureLayer, field: string, p
 
 const POINT_SIZES: Record<string, number> = { s: 4, m: 6, l: 9 };
 const zoomFactor = (z: number) => Math.min(1.4, Math.max(0.6, 0.6 + (z - 10) * 0.12));
+const FIREFLY_PX = 36; // тэмдгийн (гэрэлтэлтийн хамт) хэмжээ, zoomFactor = 1 үед
 
 const COLORABLE = new Set(["esriFieldTypeString", "esriFieldTypeSmallInteger", "esriFieldTypeInteger"]);
 export const SYSTEM_FIELD = /^(objectid|fid|globalid|shape|creat|edit)/i;
@@ -505,11 +581,16 @@ export default function MapWidget({ widget }: { widget: Widget }) {
       '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
     L.DomEvent.on(homeBtn, "click", (e) => {
       L.DomEvent.preventDefault(e);
-      if (home.current) map.fitBounds(home.current, { padding: [24, 24], maxZoom: 17 });
+      if (home.current) map.fitBounds(home.current, { ...fitPadding(widget), maxZoom: 17 });
     });
     let cancelled = false;
     let removeGallery: (() => void) | undefined;
     let showTimer: ReturnType<typeof setTimeout> | undefined;
+    if (widget.firefly) {
+      const sizeFirefly = () => map.getContainer().style.setProperty("--dw-firefly", `${Math.round(FIREFLY_PX * zoomFactor(map.getZoom()))}px`);
+      sizeFirefly();
+      map.on("zoomend", sizeFirefly);
+    }
 
     api
       .webmapLayers<{ layers: MapLayer[]; basemap: string[]; basemap_title: string | null; token: string | null }>(widget.itemId)
@@ -519,6 +600,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
 
         const overlays: Record<string, L.Layer> = {};
         const visibleLayers: L.Layer[] = [];
+        const addAfter = new Map<L.Layer, Promise<void>>();
         // Анхны харагдац: харагдах давхаргуудын цэг хамгийн их төвлөрсөн хэсэг рүү томруулна
         // Хил (аймаг, сум, стратегийн хил) давхаргыг тооцохгүй — өгөгдлийн давхарга (лиценз, цооног…) руу томруулна
         const extents: Promise<{ items: ExtentItem[]; bounds: L.LatLngBounds | null; boundary: boolean }>[] = [];
@@ -529,12 +611,15 @@ export default function MapWidget({ widget }: { widget: Widget }) {
             const pr = pointRenderer(lyr.drawingInfo);
             const boundary = isBoundaryLayer(lyr);
             const pref = prefs.get(colorKey(lyr.id));
-            const colorBy = pref === ONE_COLOR ? undefined : pref ?? pr?.field;
             // Webmap-ын тэмдэглэгээгээр талбай/шугам эсэх — тэдгээрийг талбараар өнгөлөх үед дүүргэлтээр будна
             const polyLike = isPolyRenderer(lyr.drawingInfo);
+            // Хэрэглэгч талбараар өнгөлөхийг өөрөө сонгоогүй бол цэг бүр Firefly
+            const firefly = widget.firefly && !polyLike && !(pref && pref !== ONE_COLOR) ? widget.firefly : null;
+            const colorBy = firefly || pref === ONE_COLOR ? undefined : pref ?? pr?.field;
             const polyColor = polyLike && Boolean(pref && pref !== ONE_COLOR);
-            const ownPoints = !polyLike && Boolean(pr || (pref && pref !== ONE_COLOR));
-            const baseR = POINT_SIZES[prefs.get(sizeKey(lyr.id)) ?? (pref ? "m" : "s")] ?? POINT_SIZES.m;
+            const ownPoints = !firefly && !polyLike && Boolean(pr || (pref && pref !== ONE_COLOR));
+            const sizePref = prefs.get(sizeKey(lyr.id)) ?? (firefly || pref ? "m" : "s");
+            const baseR = POINT_SIZES[sizePref] ?? POINT_SIZES.m;
             const radius = () => baseR * zoomFactor(map.getZoom());
             const colors = new Map<string, string>();
             polyPaint.current.delete(lyr.id);
@@ -568,11 +653,22 @@ export default function MapWidget({ widget }: { widget: Widget }) {
                 : {}),
             } as esri.FeatureLayerOptions);
             guardEarlyMove(fl);
+            const infoReady = layerInfo(lyr.url, token);
+            // Зөвхөн цэгэн давхаргад: талбайд pointToLayer байвал esri-leaflet шинэчлэлтийн үед алдаа шиддэг. Webmap-д
+            // тэмдэглэгээгүй давхаргын төрөл нь мэдэгдтэл зурж эхлэхгүй
+            if (firefly) {
+              addAfter.set(
+                fl,
+                infoReady.then((info) => {
+                  if (/point/i.test(info.geometryType ?? "")) drawPointsAsFirefly(map, fl, firefly, sizePref);
+                }),
+              );
+            }
             if (ownPoints) {
               map.on("zoomend", () => fl.eachFeature?.((m: L.Layer) => (m as L.CircleMarker).setRadius?.(radius())));
             }
             // Тохиргоо: цэгэн давхаргад «Өнгө, хэмжээ», бүх давхаргад «Шошго»
-            layerInfo(lyr.url, token).then((info) => {
+            infoReady.then((info) => {
               if (cancelled || !lyr.visible) return;
               const point = /point/i.test(info.geometryType ?? "");
               // Сонгогчид webmap-ын popup дахь ойлгомжтой нэрийг («Бүс» биш «Газар ашиглалтын бүс») харуулна
@@ -586,14 +682,14 @@ export default function MapWidget({ widget }: { widget: Widget }) {
               const labelDef = webLabel ?? pickLabelField(labelFields, info.displayField);
               setPickers((ps) => [
                 ...ps.filter((p) => p.id !== lyr.id),
-                { id: lyr.id, title: lyr.title, point, fields, def: pr?.field, labelFields, labelDef },
+                { id: lyr.id, title: lyr.title, point, fields, def: firefly ? undefined : pr?.field, labelFields, labelDef },
               ]);
               const labelPref = prefs.get(labelKey(lyr.id));
               const labelBy = labelPref === NO_LABEL ? undefined : labelPref ?? labelDef;
               (info.fields ?? []).forEach((f) => meta.fields.set(f.name, f));
               meta.labelField = labelBy ?? labelDef;
               labelOf.current.set(lyr.id, labelBy ?? null);
-              if (labelBy) attachLabels(map, fl, labelBy);
+              if (labelBy) attachLabels(map, fl, labelBy, undefined, Boolean(widget.labelsInside));
               if (colorBy && (point || polyColor)) {
                 colorScale(lyr.url, token, whereOf(lyr.definitionExpression, []), colorBy).then((items) => {
                   if (cancelled) return;
@@ -635,6 +731,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
             }
             // Хулгана очиход объектыг тодруулна
             fl.on("mouseover", (e: L.LeafletMouseEvent) => {
+              if (e.layer instanceof L.Marker) return; // Firefly тэмдэг CSS-ээр
               const t = e.layer as L.Path & { setRadius?: (r: number) => void };
               if (ownPoints) t.setRadius?.(radius() + 2);
               else {
@@ -643,11 +740,13 @@ export default function MapWidget({ widget }: { widget: Widget }) {
               }
             });
             fl.on("mouseout", (e: L.LeafletMouseEvent) => {
+              if (e.layer instanceof L.Marker) return;
               const t = e.layer as L.Path & { setRadius?: (r: number) => void; feature?: { id?: number } };
               if (ownPoints) t.setRadius?.(radius());
               else if (t.feature?.id !== undefined) (fl as unknown as { resetStyle: (id: number) => void }).resetStyle(t.feature.id);
             });
-            if (lyr.visible && !ownPoints && !polyColor) {
+            // Webmap-ын цэгийн ангиллын тайлбар Firefly-тэй таарахгүй. Талбайнх хэвээр
+            if (lyr.visible && !ownPoints && !polyColor && !(firefly && pr)) {
               const items = rendererLegend(lyr.drawingInfo);
               if (items.length) setLegends((ls) => [...ls.filter((x) => x.id !== lyr.id), { id: lyr.id, field: lyr.title, items }]);
             }
@@ -699,8 +798,12 @@ export default function MapWidget({ widget }: { widget: Widget }) {
           shown = true;
           clearTimeout(showTimer);
           // Webmap-д тохируулсан Esri суурь зургаар эхэлж, хэрэглэгч gallery-ээс сольж болно
-          removeGallery = addBasemapGallery(map, basemapKeyFor(basemap_title, basemap));
-          visibleLayers.forEach((l) => l.addTo(map));
+          removeGallery = addBasemapGallery(map, widget.firefly ? "firefly" : basemapKeyFor(basemap_title, basemap));
+          for (const l of visibleLayers) {
+            const wait = addAfter.get(l);
+            if (wait) void wait.then(() => !cancelled && l.addTo(map));
+            else l.addTo(map);
+          }
           if (Object.keys(overlays).length) L.control.layers({}, overlays, { collapsed: true, position: "topright" }).addTo(map);
           setLoading(false);
         };
@@ -712,7 +815,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
           const target = items.length ? denseBounds(items) : data.find((x) => x.bounds)?.bounds ?? null;
           if (target?.isValid()) {
             home.current = target;
-            map.fitBounds(target, { padding: [24, 24], maxZoom: 17, animate: shown });
+            map.fitBounds(target, { ...fitPadding(widget), maxZoom: 17, animate: shown });
           }
           show();
         });
@@ -724,7 +827,11 @@ export default function MapWidget({ widget }: { widget: Widget }) {
         }
       });
 
-    const ro = new ResizeObserver(() => map.invalidateSize());
+    const ro = new ResizeObserver(() => {
+      map.invalidateSize();
+      // Намхан зурагт өндөр popup зургийг хол гүйлгэж, дарсан цэгийг нуудаг: өндрийг нь зурагт багтаана (dashboard.css)
+      if (widget.labelsInside) map.getContainer().style.setProperty("--dw-map-h", `${map.getSize().y}px`);
+    });
     ro.observe(el.current);
     return () => {
       cancelled = true;
@@ -747,7 +854,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
   useEffect(() => {
     if (!source) return;
     if (!geo.length) {
-      if (zoomTo && home.current) mapRef.current?.fitBounds(home.current, { padding: [24, 24], maxZoom: 17 });
+      if (zoomTo && home.current) mapRef.current?.fitBounds(home.current, { ...fitPadding(widget), maxZoom: 17 });
       setZoomTo(null);
       return;
     }
@@ -763,7 +870,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
       const list = found.filter((e): e is Extent4326 => Boolean(e && Number.isFinite(e.xmin)));
       if (ctrl.signal.aborted || !list.length) return;
       const extent = { xmin: Math.min(...list.map((e) => e.xmin)), ymin: Math.min(...list.map((e) => e.ymin)), xmax: Math.max(...list.map((e) => e.xmax)), ymax: Math.max(...list.map((e) => e.ymax)) };
-      mapRef.current?.fitBounds([[extent.ymin, extent.xmin], [extent.ymax, extent.xmax]], { padding: [24, 24] });
+      mapRef.current?.fitBounds([[extent.ymin, extent.xmin], [extent.ymax, extent.xmax]], fitPadding(widget));
       setZoomTo(extent);
     });
     return () => ctrl.abort();
@@ -840,7 +947,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
                           {(["s", "m", "l"] as const).map((k) => (
                             <button
                               key={k}
-                              className={(prefs.get(sizeKey(pk.id)) ?? (prefs.get(colorKey(pk.id)) ? "m" : "s")) === k ? "on" : ""}
+                              className={(prefs.get(sizeKey(pk.id)) ?? (widget.firefly || prefs.get(colorKey(pk.id)) ? "m" : "s")) === k ? "on" : ""}
                               onClick={() => prefs.set(sizeKey(pk.id), k)}
                               title={{ s: "Жижиг цэг", m: "Дунд цэг", l: "Том цэг" }[k]}
                             >

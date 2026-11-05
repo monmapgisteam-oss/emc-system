@@ -186,6 +186,9 @@ function makeLayer(lyr: MapLayer, where: string, paint?: PolyPaint, labelField?:
   return layer;
 }
 
+/** Нээлттэй 3D харагдац: IdentityManager бүх хуудсанд нэг тул сүүлийнх нь хаагдахад л token-ыг цэвэрлэнэ */
+let open3D = 0;
+
 function registerToken(layers: MapLayer[], token: string | null) {
   if (!token) return;
   const servers = new Set(["https://www.arcgis.com/sharing/rest"]);
@@ -328,6 +331,7 @@ export default function Map3D({
   useEffect(() => {
     if (!host.current) return;
     ensureTheme();
+    open3D++;
     registerToken(layers, token);
     const map = openScene(SCENE_MESH);
     // EMC_Realistic scene-д basemap тохируулаагүй: mesh-ээс гадна хоосон хөх гардаг
@@ -358,9 +362,15 @@ export default function Map3D({
       viewRef.current = null;
       view.destroy();
       map.destroy();
+      // Гарсны дараа дараагийн хэрэглэгч энэ token-оор хандахгүй
+      if (--open3D === 0) esriId.destroyCredentials();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Scene ачаалж дуустал шүүлтүүр солигдож болно: давхарга нэмэхдээ хамгийн сүүлийнхийг уншина
+  const filtersRef = useRef(filtersFor);
+  filtersRef.current = filtersFor;
 
   const syncLayers = (scene: WebScene | undefined) => {
     const wanted = new Set(layers.map((l) => l.id));
@@ -370,7 +380,7 @@ export default function Map3D({
       for (const lyr of layers) {
         ownLayers.current.add(lyr.id);
         if (scene.findLayerById(lyr.id)) continue;
-        const layer = makeLayer(lyr, whereOf(lyr.definitionExpression, filtersFor?.(lyr.id) ?? []), polyPaint?.get(lyr.id), labelOf?.get(lyr.id));
+        const layer = makeLayer(lyr, whereOf(lyr.definitionExpression, filtersRef.current?.(lyr.id) ?? []), polyPaint?.get(lyr.id), labelOf?.get(lyr.id));
         if (!layer) continue;
         layer.visible = !hidden.has(lyr.id);
         scene.add(layer);

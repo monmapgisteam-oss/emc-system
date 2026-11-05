@@ -110,7 +110,12 @@ DEPARTMENTS = [
 PIT_LAT, PIT_LON = 49.021, 104.122
 
 
-REMOVED_DEPARTMENTS = ("MEC", "NHT", "GHE")
+# Цэснээс хасагдсан хэлтэс → анх seed-ээр орсон dashboard-ууд
+REMOVED_DEPARTMENTS = {
+    "MEC": (),
+    "NHT": ("8e3c1a4ead5f4e24979e2a4ee911039f",),
+    "GHE": ("bb9364b96b7641418412fc8b522efad3", "21b264f5b7864776a180aa394fdb685a"),
+}
 
 
 def seed_departments(db) -> int:
@@ -131,9 +136,13 @@ def seed_departments(db) -> int:
 
 
 def remove_departments(db) -> None:
-    """Цэснээс хасагдсан хэлтсийг өмнө үүссэн өгөгдлийн сангаас устгана. Байршуулсан өгөгдөлтэй бол хөндөхгүй."""
+    """Цэснээс хасагдсан хэлтсийг өмнө үүссэн өгөгдлийн сангаас устгана.
+
+    Хүн оруулсан зүйлтэй бол (байршуулсан дата, нэмсэн dashboard, холбоос) хөндөхгүй: устгал нь буцаагдахгүй.
+    """
     for dep in db.scalars(select(Department).where(Department.code.in_(REMOVED_DEPARTMENTS))):
-        if not dep.datasets:
+        added = [row for row in dep.dashboards if row.item_id not in REMOVED_DEPARTMENTS[dep.code]]
+        if not dep.datasets and not dep.links and not added:
             db.delete(dep)
     db.commit()
 

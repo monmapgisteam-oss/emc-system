@@ -895,6 +895,76 @@ def test_added_row_in_retired_group_does_not_rerun_migration(client):
         db.commit()
 
 
+def test_remove_departments_keeps_what_people_added(client):
+    """Хасагдсан хэлтсийн seed мөр л устна. Нэмсэн dashboard, холбоос нь буцаагдахгүй устгагдахгүй."""
+    from sqlalchemy import select
+
+    from app.database import SessionLocal
+    from app.models import ArcgisDashboard, Department
+    from app.seed import REMOVED_DEPARTMENTS, remove_departments
+
+    row = lambda item_id: ArcgisDashboard(item_id=item_id, title="T", group="G", sort_order=0)
+    with SessionLocal() as db:
+        db.add(Department(code="GHE", name="Зөвхөн seed", dashboards=[row(i) for i in REMOVED_DEPARTMENTS["GHE"]]))
+        db.add(Department(code="NHT", name="Нэмсэн dashboard", dashboards=[row(REMOVED_DEPARTMENTS["NHT"][0]), row("a" * 32)]))
+        db.add(Department(code="MEC", name="Холбоостой", links=[{"title": "x", "url": "https://example.test"}]))
+        db.commit()
+        remove_departments(db)
+        left = db.scalars(select(Department).where(Department.code.in_(REMOVED_DEPARTMENTS))).all()
+        assert {d.code for d in left} == {"NHT", "MEC"}
+        assert len(next(d for d in left if d.code == "NHT").dashboards) == 2
+        for d in left:
+            db.delete(d)
+        db.commit()
+
+
+def test_tsul_binary_assets_are_not_gzipped():
+    """Хоёртын файлыг шахахгүй, API, JSON шахагдсаар."""
+    from fastapi.testclient import TestClient
+    from starlette.applications import Starlette
+    from starlette.middleware import Middleware
+    from starlette.responses import Response
+    from starlette.routing import Route
+
+    from app.main import AppGZip
+
+    app = Starlette(routes=[Route("/{path:path}", lambda r: Response(b"x" * 5000))], middleware=[Middleware(AppGZip, minimum_size=1024)])
+    web = TestClient(app)
+    encoding = lambda path: web.get(path, headers={"Accept-Encoding": "gzip"}).headers.get("content-encoding")
+    assert encoding("/data/pit_01.glb") is None and encoding("/data/blocks_03.bin") is None
+    assert encoding("/data/excel.json") == "gzip" and encoding("/api/x") == "gzip"
+
+
+def test_env_maps_use_firefly_symbols_by_theme():
+    """Цагаан тоос цэнхэр, ус цэнхэр, хөрс нил ягаан, агаар цагаан. Бусад самбарын зураг хэвээр."""
+    from app.services.dashboard_extras import apply
+    from app.services.env_extras import AIR, DUST, GROVE, RECLAMATION, SOIL, TREES, WATER
+    from app.services.plant_dashboards import PLANT_AIR, PLANT_WATER, get
+
+    def firefly(item_id):
+        dash = {"id": item_id, "header": {"selectors": []}, "layout": None, "widgets": [{"id": "m", "type": "mapWidget"}, {"id": "c", "type": "indicatorWidget"}]}
+        out = apply(dash)["widgets"]
+        assert "firefly" not in out[1]
+        return out[0].get("firefly")
+
+    assert [firefly(i) for i in (DUST, WATER, SOIL, AIR)] == ["cyan", "water", "purple", "white"]
+    assert [firefly(i) for i in (RECLAMATION, GROVE, TREES)] == [None, None, None]
+    plant = lambda i: next(w for w in get(i)["widgets"] if w["type"] == "mapWidget")["firefly"]
+    assert (plant(PLANT_WATER), plant(PLANT_AIR)) == ("water", "white")
+    # Шошгын хамгаалалт бүх Байгаль орчны зурагт, Firefly-гүй самбарт ч
+    grove = {"id": GROVE, "header": {"selectors": []}, "layout": None, "widgets": [{"id": "m", "type": "mapWidget"}]}
+    assert apply(grove)["widgets"][0]["labelsInside"] is True
+
+
+def test_env_dashboards_tell_the_frontend_their_links_are_complete():
+    """Газрын зураг шууд ArcGIS рүү асуудаг: frontend байхгүй талбараар холбоос таамаглахгүй."""
+    from app.services.env_extras import link_all
+
+    dash = {"widgets": [{"id": "map", "type": "mapWidget"}], "header": {"selectors": []}}
+    link_all(dash)
+    assert dash["linksComplete"] is True
+
+
 def test_filter_to_sql():
     from app.services.arcgis import filter_to_sql, runtime_filter_to_sql
 
@@ -910,6 +980,9 @@ def test_filter_to_sql():
     types = {"dugaar": "esriFieldTypeString", "ognoo": "esriFieldTypeDate"}
     assert runtime_filter_to_sql({"field": "dugaar", "op": "in", "values": ["1", None]}, types) == "(dugaar IN ('1') OR dugaar IS NULL)"
     assert runtime_filter_to_sql({"field": "ognoo", "op": "between", "values": [None, "2025-01-01T00:00:00"]}, types).startswith("ognoo <= ")
+    # Нөөц үг нэртэй талбар хашилтлагдсан ч төрлөө алдахгүй
+    reserved = runtime_filter_to_sql({"field": "end", "op": "between", "values": ["2020-01-01T00:00:00", None]}, {"end": "esriFieldTypeDate"})
+    assert reserved == "\"end\" >= timestamp '2020-01-01 00:00:00'"
     with pytest.raises(Exception):
         runtime_filter_to_sql({"field": "x; DROP", "op": "in", "values": [1]}, types)
 

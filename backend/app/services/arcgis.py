@@ -388,7 +388,7 @@ def filter_to_sql(node: dict | None) -> str | None:
 def runtime_filter_to_sql(flt: dict, field_types: dict[str, str]) -> str | None:
     """Хэрэглэгчийн сонголтоос ирсэн шүүлтүүр: {field, op: in|between|contains, values}."""
     field = _ident(flt["field"])
-    ftype = field_types.get(field)
+    ftype = field_types.get(flt["field"])  # _ident нөөц үгийг хашилтлаж буцаадаг, төрлийн түлхүүр хашилтгүй
     values = flt.get("values") or []
     if flt.get("op") == "contains":
         # Олон утгатай талбар ("Нэр1,Нэр2") — аль нэг нэр агуулсан бичлэг
