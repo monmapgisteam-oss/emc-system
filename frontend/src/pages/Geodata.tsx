@@ -988,6 +988,7 @@ export default function Geodata() {
         {dim === "3d" && data && mapRef.current && (
           <Suspense fallback={<div className="map3d-wait">3D ачаалж байна…</div>}>
             <Map3D
+              smallRings
               layers={active}
               token={data.token}
               layerList={false}

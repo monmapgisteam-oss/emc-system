@@ -56,6 +56,7 @@ export type Widget = {
   itemId?: string;
   /** Газрын зураг: давхарга бүрт объект дээр дарахад шүүх талбар */
   clickFields?: Record<string, string>;
+  plainPoints?: boolean; // зурагт firefly биш, энгийн дугуй цэг
   // indicator
   defaultSettings?: {
     topSection?: { textInfo?: { text?: string } };

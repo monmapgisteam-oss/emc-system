@@ -24,7 +24,7 @@ import SliceAnalysis from "@arcgis/core/analysis/SliceAnalysis";
 import SlicePlane from "@arcgis/core/analysis/SlicePlane";
 import ElevationProfileAnalysis from "@arcgis/core/analysis/ElevationProfileAnalysis";
 import * as reactiveUtils from "@arcgis/core/core/reactiveUtils";
-import { serviceLabelField, whereOf, type Extent4326, type LayerInfo, type MapLayer, type PolyPaint } from "./MapWidget";
+import { serviceLabelField, whereOf, type Extent4326, type LayerInfo, type MapLayer, type PointPaint, type PolyPaint } from "./MapWidget";
 import type { RuntimeFilter } from "./types";
 
 esriConfig.assetsPath = "https://js.arcgis.com/4.34/@arcgis/core/assets";
@@ -123,13 +123,49 @@ const labelClass = (field: string, point: boolean, minScale: number) =>
     },
   } as never);
 
+/** Цэгийн цөм ба импульсийн бөгжүүд. SceneView-ийн тэмдэг хөдөлдөггүй: хэмжээ бүрт давхарга, тунгалаг байдлыг нь дараалан солино. */
+const RINGS = { sizes: [16, 24, 32, 40], strength: [1, 0.8, 0.55, 0.3], outline: 1.6 };
+/** Нягт давхаргад том бөгж нийлж газрыг бүрхэнэ: жижиг, цөөн, бүдэг. Цэнэг ч бага. */
+const DENSE_RINGS = { sizes: [11, 17], strength: [0.55, 0.3], outline: 1 };
+const DENSE_POINTS = 500;
+const PULSE_MS = 2000;
+const PULSE_TICK_MS = 100;
+
+const coreSymbol = (hex: string, size = 9) => ({
+  type: "point-3d",
+  symbolLayers: [{ type: "icon", size, resource: { primitive: "circle" }, material: { color: hex }, outline: { color: [255, 255, 255, 0.9], size: 1 } }],
+});
+
+const ringSymbol = (hex: string, size: number, outline: number) => ({
+  type: "point-3d",
+  symbolLayers: [{ type: "icon", size, resource: { primitive: "circle" }, material: { color: [0, 0, 0, 0] }, outline: { color: hex, size: outline } }],
+});
+
+/** 2D-ийн өнгөөр; 2D өнгөгүй давхаргын бөгж ногоон, өөрийн тэмдэг нь хэвээр */
+function paintRenderer(points: PointPaint | undefined, symbol: (hex: string) => object) {
+  if (!points) return { type: "simple", symbol: symbol(JADE) };
+  if (!points.field || !points.colors.size) return { type: "simple", symbol: symbol(points.color) };
+  return {
+    type: "unique-value",
+    field: points.field,
+    defaultSymbol: symbol("#8a9a96"),
+    uniqueValueInfos: [...points.colors].map(([value, color]) => ({ value, symbol: symbol(color) })),
+  };
+}
+
+/** `at`: импульсийн аль үед гэрэлтэх (0-1), `span`: гэрэлтэх хугацаа */
+type Ring = { ring: FeatureLayer; main: FeatureLayer; at: number; span: number; strength: number };
+
+const ringId = (id: string, index: number) => `${id}::ring${index}`;
+const baseId = (id: string) => id.split("::ring")[0];
+
 const polyFill = (hex: string) => {
   const color = new Color(hex);
   color.a = 0.32;
   return { type: "simple-fill", color, outline: { color: hex, width: 1.2 } };
 };
 
-function makeLayer(lyr: MapLayer, where: string, paint?: PolyPaint, labelField?: string | null): Layer | null {
+function makeLayer(lyr: MapLayer, where: string, paint?: PolyPaint, labelField?: string | null, points?: PointPaint): Layer | null {
   const common = { id: lyr.id, url: lyr.url, title: lyr.title, opacity: lyr.opacity, visible: lyr.visible };
   if (lyr.kind === "tiled") return new TileLayer(common);
   if (lyr.kind === "dynamic") return new MapImageLayer(common);
@@ -173,6 +209,7 @@ function makeLayer(lyr: MapLayer, where: string, paint?: PolyPaint, labelField?:
     layer.labelingInfo = null;
     if (!field || !layer.fields?.some((f) => f.name === field)) return;
     const point = layer.geometryType === "point";
+    if (point && points) layer.renderer = paintRenderer(points, coreSymbol) as never;
     let minScale = 0;
     if (point) {
       const names = await layer
@@ -288,6 +325,8 @@ export default function Map3D({
   layerList = true,
   insetLeft = 0,
   polyPaint,
+  pointPaint,
+  smallRings = false,
   labelOf,
   zoomTo,
 }: {
@@ -300,6 +339,9 @@ export default function Map3D({
   layerList?: boolean;
   insetLeft?: number;
   polyPaint?: Map<string, PolyPaint>;
+  pointPaint?: Map<string, PointPaint>;
+  /** Давхарга олонтой зурагт том бөгж мэдээллээ дарна */
+  smallRings?: boolean;
   labelOf?: Map<string, string | null>;
   zoomTo?: Extent4326 | null;
 }) {
@@ -308,6 +350,8 @@ export default function Map3D({
   const viewRef = useRef<SceneView | null>(null);
   const rightRef = useRef<SceneView | null>(null);
   const ownLayers = useRef(new Set<string>());
+  const rings = useRef<Ring[]>([]);
+  const toolRef = useRef<ToolKind | null>(null);
   const session = useRef<{ abort: AbortController; analysis: any; watch: { remove: () => void } } | null>(null);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState("");
@@ -362,21 +406,88 @@ export default function Map3D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Цэгэн давхаргын бөгжүүд: шүүлтүүр, харагдалтыг үндсэн давхаргаасаа дагана */
+  const addRings = async (scene: WebScene, main: FeatureLayer, lyr: MapLayer) => {
+    if (main.geometryType !== "point" || !main.capabilities?.operations?.supportsQuery) return;
+    const count = await main.queryFeatureCount({ where: main.definitionExpression || "1=1" } as never).catch(() => Infinity);
+    if (scene.destroyed) return;
+    const paint = pointPaint?.get(lyr.id);
+    const dense = count > DENSE_POINTS;
+    const style = dense || smallRings ? DENSE_RINGS : RINGS;
+    if (dense && paint) main.renderer = paintRenderer(paint, (hex) => coreSymbol(hex, 6)) as never;
+    style.sizes.forEach((size, index) => {
+      const ring = new FeatureLayer({
+        id: ringId(lyr.id, index),
+        url: lyr.url,
+        title: lyr.title,
+        definitionExpression: main.definitionExpression,
+        outFields: paint?.field ? [paint.field] : [],
+        popupEnabled: false,
+        labelsVisible: false,
+        listMode: "hide",
+        legendEnabled: false,
+        opacity: 0,
+        visible: main.visible && !toolRef.current,
+        elevationInfo: main.elevationInfo,
+        screenSizePerspectiveEnabled: false,
+        renderer: paintRenderer(paint, (hex) => ringSymbol(hex, size, style.outline)),
+      } as never);
+      scene.add(ring);
+      rings.current.push({ ring, main, at: index / style.sizes.length, span: 1 / style.sizes.length, strength: style.strength[index] });
+      ring.addHandles([
+        reactiveUtils.watch(() => main.definitionExpression, (where) => (ring.definitionExpression = where)),
+        reactiveUtils.watch(() => main.visible, (on) => (ring.visible = on && !toolRef.current)),
+      ]);
+    });
+  };
+
   const syncLayers = (scene: WebScene | undefined) => {
     const wanted = new Set(layers.map((l) => l.id));
     // Scene ачаалахдаа давхаргаа дарж бичдэг тул дараа нь нэмнэ
     scene?.when(() => {
-      scene.removeMany(scene.layers.filter((l) => ownLayers.current.has(l.id) && !wanted.has(l.id)).toArray());
+      const gone = scene.layers.filter((l) => ownLayers.current.has(baseId(l.id)) && !wanted.has(baseId(l.id))).toArray();
+      scene.removeMany(gone);
+      rings.current = rings.current.filter((r) => !gone.includes(r.ring));
       for (const lyr of layers) {
         ownLayers.current.add(lyr.id);
         if (scene.findLayerById(lyr.id)) continue;
-        const layer = makeLayer(lyr, whereOf(lyr.definitionExpression, filtersFor?.(lyr.id) ?? []), polyPaint?.get(lyr.id), labelOf?.get(lyr.id));
+        const layer = makeLayer(lyr, whereOf(lyr.definitionExpression, filtersFor?.(lyr.id) ?? []), polyPaint?.get(lyr.id), labelOf?.get(lyr.id), pointPaint?.get(lyr.id));
         if (!layer) continue;
         layer.visible = !hidden.has(lyr.id);
         scene.add(layer);
+        if (layer instanceof FeatureLayer) layer.when(() => addRings(scene, layer, lyr), () => {});
       }
     }, () => {});
   };
+
+  // Радар импульс: бөгжүүд дотроос гадагш дараалан гэрэлтэнэ
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const still = setInterval(() => rings.current.forEach((r) => (r.ring.opacity = r.at === 0 ? r.strength : 0)), 1000);
+      return () => clearInterval(still);
+    }
+    let frame = 0;
+    let last = 0;
+    const tick = (now: number) => {
+      frame = requestAnimationFrame(tick);
+      // Хэмжих, зураг чирэх үед дахин зурахгүй: удирдлага саадгүй
+      if (now - last < PULSE_TICK_MS || toolRef.current || viewRef.current?.interacting) return;
+      last = now;
+      const phase = (now % PULSE_MS) / PULSE_MS;
+      for (const r of rings.current) {
+        const d = Math.min(Math.abs(phase - r.at), 1 - Math.abs(phase - r.at));
+        r.ring.opacity = Math.max(0, 1 - d / r.span) * r.strength;
+      }
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  // Хэмжих үед бөгж цэг сонгоход саад болохгүй
+  useEffect(() => {
+    toolRef.current = tool;
+    rings.current.forEach((r) => (r.ring.visible = r.main.visible && !tool));
+  }, [tool]);
 
   // Swipe: баруун талд хулгана хүрэхгүй (CSS), бүх удирдлага зүүн view-ээр явж, камер нь дагана.
   // Analysis нэг view-д л байж чадна: хэмжилтийн үед баруун талыг нууж, Mesh дээр хэмжинэ.
@@ -395,6 +506,7 @@ export default function Map3D({
     return () => {
       follow.remove();
       rightRef.current = null;
+      rings.current = rings.current.filter((r) => r.ring.parent !== rightMap);
       right.destroy();
       rightMap.destroy();
     };

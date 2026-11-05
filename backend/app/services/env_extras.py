@@ -449,12 +449,27 @@ def _air_standard_charts(dash: dict, dust: dict) -> None:
         dash["widgets"] = [*dash["widgets"], *(w for w, _ in charts)]
 
 
+def _with_plain_points(fn):
+    """Байгаль орчны зурагт firefly биш, энгийн дугуй цэг."""
+
+    def apply(dash: dict) -> None:
+        fn(dash)
+        for w in dash["widgets"]:
+            if w.get("type") == "mapWidget":
+                w["plainPoints"] = True
+
+    return apply
+
+
 EXTRAS = {
-    WATER: _monitor,
-    SOIL: _soil,
-    AIR: _air,
-    DUST: _dust,
-    RECLAMATION: _plain,
-    GROVE: _plain,
-    TREES: _plain,
+    item: _with_plain_points(fn)
+    for item, fn in {
+        WATER: _monitor,
+        SOIL: _soil,
+        AIR: _air,
+        DUST: _dust,
+        RECLAMATION: _plain,
+        GROVE: _plain,
+        TREES: _plain,
+    }.items()
 }

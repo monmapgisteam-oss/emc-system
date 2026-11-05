@@ -783,6 +783,13 @@ def map_layers(webmap_id: str) -> dict:
         return {"layers": built, "basemap": [], "basemap_title": None, "token": token()}
     wm = webmap_layers(webmap_id)
     layers = [out for out in map(_layer_out, wm["operational"]) if out]
+    # Webmap-д тэмдэглэгээгүй давхаргын төрлийг сервисээс: цэг бол firefly-аар зурна
+    for out in layers:
+        if out["kind"] == "feature" and not (out["drawingInfo"] or {}).get("renderer"):
+            try:
+                out["geometryType"] = layer_info(out["url"]).get("geometryType")
+            except ArcGISError:
+                pass
     base = [b.get("url") for b in wm["basemap"] if b.get("url")]
     return {"layers": layers, "basemap": base, "basemap_title": wm["title"], "token": token()}
 
