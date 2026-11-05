@@ -727,8 +727,22 @@ LAKE_CHARTS = {
 LAKE_SHADES = ["#34d0ae", "#a8e6d6", "#1f8f78", "#d6f5ec"]
 
 
+def _replace_tabs(el: dict, tab_id: str) -> None:
+    """Таб мөрийг хасаж, эхний табын агуулгыг байранд нь үлдээнэ."""
+    kids = el.get("elements") or []
+    for i, kid in enumerate(kids):
+        if kid.get("type") == "tabsLayoutElement" and kid["id"].startswith(tab_id):
+            first = {k: v for k, v in kid["elements"][0].items() if k != "tabName"}
+            first.update({k: kid[k] for k in ("width", "height") if k in kid})
+            kids[i] = first
+        else:
+            _replace_tabs(kid, tab_id)
+
+
 def _lake(dash: dict) -> None:
     by_prefix = {w["id"][:8]: w for w in dash["widgets"]}
+    # 2D/3D-г зураг өөрөө сэлгэдэг
+    _replace_tabs(dash["layout"], "ee143d7d")
     selectors = (dash.get("header") or {}).get("selectors") or []
     groups = []
     for gid, (title, rows) in LAKE_GROUPS.items():

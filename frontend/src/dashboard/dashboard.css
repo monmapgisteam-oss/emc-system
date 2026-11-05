@@ -306,6 +306,7 @@ body.dw-resizing-h .dw-panel, body.dw-resizing-v .dw-panel { pointer-events: non
 .dw-map-legend span { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; gap: 6px; }
 .dw-map-legend span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dw-map-legend i { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 1.5px #fff; }
+.dw-map-legend i.dot:not(.flat) { width: 6px; height: 6px; margin: 2px; background: #fff; box-shadow: 0 0 3px 2px currentColor, 0 0 7px 3px currentColor; }
 .dw-map-legend em { font-style: normal; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .dw-size { display: inline-flex; gap: 2px; }
 .app .dw-size button { width: 24px; height: 24px; padding: 0; display: grid; place-items: center; background: transparent; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }

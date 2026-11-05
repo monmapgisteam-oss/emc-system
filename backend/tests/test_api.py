@@ -949,6 +949,10 @@ def test_env_maps_use_firefly_symbols_by_theme():
 
     assert [firefly(i) for i in (DUST, WATER, SOIL, AIR)] == ["cyan", "water", "purple", "white"]
     assert [firefly(i) for i in (RECLAMATION, GROVE, TREES)] == [None, None, None]
+    # Байгаль орчны бүх зураг бусад хэлтсийн SVG firefly-г авахгүй: талбараар өнгөлөхөд энгийн дугуй цэг
+    for item_id in (DUST, WATER, SOIL, AIR, RECLAMATION, GROVE, TREES):
+        map_only = {"id": item_id, "header": {"selectors": []}, "layout": None, "widgets": [{"id": "m", "type": "mapWidget"}]}
+        assert apply(map_only)["widgets"][0]["plainPoints"] is True
     plant = lambda i: next(w for w in get(i)["widgets"] if w["type"] == "mapWidget")["firefly"]
     assert (plant(PLANT_WATER), plant(PLANT_AIR)) == ("water", "white")
     # Шошгын хамгаалалт бүх Байгаль орчны зурагт, Firefly-гүй самбарт ч
@@ -1015,3 +1019,11 @@ def test_contains_filter():
     from app.services.arcgis import runtime_filter_to_sql
 
     assert runtime_filter_to_sql({"field": "ners", "op": "contains", "values": ["Болд", "O'Neil"]}, {}) == "(ners LIKE '%Болд%' OR ners LIKE '%O''Neil%')"
+
+
+def test_demo_points_are_hidden(client):
+    lines = ["point_code,measured_at,x,y,z", "DEMO-Z1,2026-01-01T08:00:00,500000,5430000,1300", "REAL-Z1,2026-01-01T08:00:00,500000,5430000,1300"]
+    r = client.post("/api/displacement/measurements/import", files={"file": ("m.csv", io.BytesIO("\n".join(lines).encode()), "text/csv")})
+    assert r.status_code == 200
+    codes = {p["code"] for p in client.get("/api/displacement/points").json()}
+    assert "REAL-Z1" in codes and "DEMO-Z1" not in codes

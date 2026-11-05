@@ -31,7 +31,8 @@ def _get(db: Session, point_id: int) -> MonitoringPoint:
 @router.get("/points", response_model=list[PointOut])
 def list_points(window_days: float = Query(3.0, gt=0), db: Session = Depends(get_db)):
     out = []
-    for p in db.scalars(select(MonitoringPoint).order_by(MonitoringPoint.code)).all():
+    # Туршилтын (DEMO-) цэг бодит мэдээлэл биш: хэрэглэгчид харуулахгүй
+    for p in db.scalars(select(MonitoringPoint).where(MonitoringPoint.code.not_like("DEMO-%")).order_by(MonitoringPoint.code)).all():
         item = PointOut.model_validate(p)
         item.summary = _analyze(p, window_days)["summary"]
         out.append(item)

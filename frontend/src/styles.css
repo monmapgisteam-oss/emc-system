@@ -208,21 +208,14 @@ details summary { cursor: pointer; }
 .map-legend span { display: flex; align-items: center; gap: 7px; }
 .map-legend i { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 1.5px #fff; }
 .map-panel .map { border: 0; flex: 1; border-radius: 0 0 var(--radius) var(--radius); overflow: hidden; }
-.chip.demo { color: var(--status-warning); border-color: color-mix(in srgb, var(--status-warning) 45%, transparent); }
 
 /* Цэгийн код — газрын зураг дээр үргэлж */
 .map-tag { pointer-events: none; }
+/* Leaflet-ийн plus-lighter: бутархай томруулалтад давхцсан пиксел нэмэгдэж цагаан шугам болдог. Завсар гарахгүй хагас пиксел давхцуулна. */
+.leaflet-container img.leaflet-tile { mix-blend-mode: normal !important; width: 256.5px !important; height: 256.5px !important; }
 .map-tag span { position: absolute; left: 9px; top: -8px; white-space: nowrap; font-size: 10.5px; font-weight: 700; color: #fff; padding: 0 4px; border-radius: 3px; background: rgba(7, 18, 15, .72); border-left: 2px solid var(--c); line-height: 15px; }
 
 /* Хурдны чиг хандлага */
-.trend-panel { flex: 0 0 34%; min-height: 170px; }
-.trend { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.trend-legend { flex: none; margin-bottom: 4px; }
-.trend-legend span { cursor: pointer; }
-.trend-legend span.th { cursor: default; color: var(--text-muted); }
-.trend-legend i { width: 14px; height: 3px; }
-.trend-legend i.dash { width: 14px; height: 0; border-top: 2px dashed; background: none; }
-.trend-chart { flex: 1; min-height: 0; }
 
 
 /* Dashboard хайлт — хэлтсээр бүлэглэсэн */
@@ -232,60 +225,21 @@ details summary { cursor: pointer; }
 
 
 /* Цэгүүд хурдаар — зураас + анхааруулгын босгын тэмдэг */
-.rank { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; min-height: 0; scrollbar-width: thin; scrollbar-color: var(--axis) transparent; }
-.rank li { display: grid; grid-template-columns: 8px 36px minmax(30px, 1fr) 40px; align-items: center; column-gap: 8px; min-height: 28px; padding: 2px 4px; border-radius: 5px; cursor: pointer; font-size: 12px; }
-.rank small { grid-column: 2 / -1; margin-top: -3px; font-size: 10.5px; color: var(--status-critical); }
-.rank li:hover { background: var(--surface-2); }
-.rank .dot { width: 8px; height: 8px; border-radius: 50%; }
-.rank .code { font-weight: 700; }
-.rank .bar { position: relative; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .06); }
-.rank .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; opacity: .85; }
-.rank b { text-align: right; font-variant-numeric: tabular-nums; }
-.rank li.alarm b { color: var(--status-critical); }
-.rank li.warning b { color: var(--status-warning); }
-.rank li.normal b, .rank li.no_data b { color: var(--text-secondary); font-weight: 600; }
 
 /* ---------- Нүүр (2-р загвар): газрын зураг бүтэн, мэдээлэл хөвөх самбарт ---------- */
-.home2 { position: relative; height: calc(100vh - var(--head-h)); min-height: 520px; }
-.home2 > .map { position: absolute; inset: 0; border: 0; border-radius: 0; }
-.home2 .float { position: absolute; z-index: 600; background: rgba(9, 22, 19, .86); backdrop-filter: blur(8px); border: 1px solid rgba(255, 255, 255, .07); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
-.home2 .float > header { display: flex; align-items: center; gap: 8px; padding: 9px 12px 4px; }
-.home2 .float > header h3 { margin: 0; flex: 1; font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
-.home2 .float > header .unit { font-size: 10.5px; color: var(--text-muted); }
-.home2 .float .empty { margin: auto; padding: 16px; color: var(--text-muted); font-size: 12px; }
 /* Leaflet-ийн товчлуурууд хөвөх самбартай давхцахгүй */
-.home2 .leaflet-top.leaflet-left { top: 56px; }
-.home2 .leaflet-top.leaflet-right { right: 296px; }
 /* Esri-ийн эх сурвалжийн бичиг — хурдны графикийн дээд баруун буланд */
-.home2 .leaflet-bottom.leaflet-right { right: 296px; bottom: calc(max(28%, 160px) + 14px); }
-.home2 .leaflet-control-attribution { background: rgba(9, 22, 19, .6) !important; border-radius: 4px; }
 
-.status-strip { top: 12px; left: 12px; right: 300px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 18px; padding: 9px 14px; font-size: 12px; color: var(--text-secondary); width: max-content; max-width: calc(100% - 324px); }
-.status-strip .ttl { font-weight: 600; color: var(--text-primary); }
-.status-strip .total b, .status-strip .st b { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-right: 4px; font-variant-numeric: tabular-nums; }
-.status-strip .st { display: inline-flex; align-items: center; gap: 6px; }
-.status-strip .st i { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 1.5px #fff; }
 
-.points-float { top: 12px; right: 12px; bottom: 12px; width: 272px; display: flex; flex-direction: column; }
-.points-float .rank { padding: 2px 8px 8px; }
 
-.trend-float { left: 12px; right: 296px; bottom: 12px; height: 28%; min-height: 160px; display: flex; flex-direction: column; }
-.trend-float .trend { padding: 0 10px 8px; }
 
 /* Dashboard хайлт — дээд мөрөнд */
 
-@media (max-width: 1000px) {
-  .points-float { width: 220px; }
-  .status-strip { right: 244px; max-width: calc(100% - 268px); }
-  .trend-float { right: 244px; }
-  .home2 .leaflet-top.leaflet-right, .home2 .leaflet-bottom.leaflet-right { right: 244px; }
-}
 
 /* Намхан дэлгэц — тоо нягт, хурдны график намхан */
 @media (max-height: 820px) {
   .stat2 { padding: 7px 14px; }
   .stat2 b { font-size: 20px; }
-  .trend-panel { flex-basis: 32%; min-height: 150px; }
 }
 @media (max-width: 1000px) {
   .home { grid-template-columns: minmax(0, 1fr) minmax(240px, 280px); grid-template-areas: "kpi kpi" "center right" "left right"; height: auto; }
@@ -400,7 +354,7 @@ body { background: radial-gradient(1200px 600px at 80% -10%, rgba(12, 124, 111, 
 .dash-body .dw-locked { margin: auto; }
 
 /* ---------- Хяналтын самбар, Уулын цулын шилжилт — мөн дэлгэцэнд багтана ---------- */
-.app main:has(.home), .app main:has(.home2), .app main:has(.disp), .app main:has(.geo) { padding-bottom: 0; }
+.app main:has(.home), .app main:has(.ov), .app main:has(.disp), .app main:has(.geo) { padding-bottom: 0; }
 /* ---------- Геомэдээллийн сан: газрын зураг бүтэн, давхаргын цэс зүүн талд ---------- */
 .geo { position: relative; height: calc(100vh - var(--head-h)); min-height: 480px; }
 .app main:has(.tsul-page) { padding-bottom: 0; }
@@ -611,3 +565,40 @@ body { background: radial-gradient(1200px 600px at 80% -10%, rgba(12, 124, 111, 
 /* Суурь зургийн эх сурвалжийн урт бичиг — нэг мөрт, хулгана очиход бүтнээр */
 .leaflet-container .leaflet-control-attribution { max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .leaflet-container .leaflet-control-attribution:hover { max-width: min(760px, 80vw); white-space: normal; }
+
+/* Нүүр: ерөнхий мэдээлэл */
+.ov { display: flex; flex-direction: column; gap: 6px; height: calc(100vh - var(--head-h)); min-height: 560px; padding: 6px; }
+.ov-band { flex: none; display: grid; grid-template-columns: 6fr 3fr 3fr minmax(150px, 1fr); gap: 6px; }
+.ov-sec { display: flex; flex-direction: column; min-width: 0; padding: 4px 6px 6px; border: 1px solid var(--border); background: var(--surface-1); }
+.app .ov-head { display: flex; align-items: center; gap: 7px; width: 100%; padding: 3px 4px; border: 0; border-radius: 4px; background: transparent; color: var(--text-primary); font-size: 12.5px; text-align: left; cursor: pointer; }
+.app .ov-head:hover { background: var(--surface-2); }
+.ov-head b { flex: 1; min-width: 0; overflow: hidden; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
+.ov-head span { flex: none; font-size: 11px; font-weight: 400; color: var(--text-muted); }
+.ov-grid { display: grid; gap: 6px; margin-top: 3px; }
+.ov-kpi { display: flex; min-width: 0; height: 68px; }
+.ov-kpi[role="link"] { cursor: pointer; }
+.ov-kpi.blank { border: 1px solid var(--border); }
+.ov-kpi > .dw-panel { flex: 1; min-width: 0; background: var(--surface-2); }
+.ov-kpi:hover > .dw-panel, .ov-kpi:focus-visible > .dw-panel { border-color: var(--accent); }
+.app .ov-open { flex: 1; margin-top: 3px; min-height: 68px; border: 1px solid var(--border); background: var(--surface-2); color: var(--accent); font-size: 12px; font-weight: 700; cursor: pointer; }
+.app .ov-open:hover { border-color: var(--accent); }
+.ov-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 33%); gap: 6px; }
+.ov-map { display: flex; min-width: 0; min-height: 0; border: 1px solid var(--border); }
+.ov-map > .dw-panel { flex: 1; min-width: 0; border: 0; }
+.ov-charts { display: grid; grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 6px; min-height: 0; min-width: 0; }
+.ov-chart { display: flex; min-width: 0; min-height: 0; }
+.ov-chart > .dw-panel { flex: 1; min-width: 0; }
+.ov-chart.blank { border: 1px solid var(--border); background: var(--surface-1); }
+@media (max-width: 1700px) {
+  .ov { height: auto; min-height: calc(100vh - var(--head-h)); }
+  .ov-band { grid-template-columns: 3fr 3fr minmax(130px, 1fr); }
+  .ov-gmh { grid-column: 1 / -1; }
+  .ov-body { flex: none; height: max(600px, calc(100vh - var(--head-h) - 240px)); }
+}
+@media (max-width: 1100px) {
+  .ov-band { grid-template-columns: minmax(0, 1fr); }
+  .ov-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .ov-body { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .ov-map { height: 420px; }
+  .ov-charts { grid-template-rows: repeat(3, 240px); }
+}

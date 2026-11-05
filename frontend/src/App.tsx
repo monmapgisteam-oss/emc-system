@@ -14,7 +14,7 @@ import WorkspaceSearch from "./components/WorkspaceSearch";
 /** Цэсэнд багтах богино нэр — бүтэн нэр нь толгой мөр ба title-д */
 const DEPT_SHORT: Record<string, string> = {
   GMH: "Геологи, маркшейдер",
-  COM: "Холбоо шугам",
+  COM: "Холбоо шугамын байгууламж",
   BOH: "Байгаль орчин",
   HSE: "ХАБЭА",
 };
@@ -86,7 +86,7 @@ function Shell({ user, departments, onLogout }: { user: AuthUser; departments: D
           <i className="wk-div" />
           <NavLink to="/displacement" title="Уулын цулын шилжилт">
             <IconMountain size={20} />
-            <span>Цулын шилжилт</span>
+            <span>Уулын цулын шилжилт</span>
           </NavLink>
           <NavLink to="/geodata" title="Геомэдээллийн сан">
             <IconDatabase size={20} />
@@ -99,7 +99,7 @@ function Shell({ user, departments, onLogout }: { user: AuthUser; departments: D
         <Routes>
           {/* Нэвтэрсний дараа шууд үндсэн систем — тусдаа нүүр хуудасгүй */}
           <Route path="/" element={<Navigate to="/monitor" replace />} />
-          <Route path="/monitor" element={<Monitor />} />
+          <Route path="/monitor" element={<Monitor departments={departments} />} />
           <Route path="/displacement" element={<MineMovement />} />
           <Route path="/displacement/points" element={<Displacement />} />
           <Route path="/geodata" element={<Geodata />} />

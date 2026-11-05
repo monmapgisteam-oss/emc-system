@@ -38,12 +38,50 @@ export type MapLayer = {
   opacity: number;
   definitionExpression?: string | null;
   drawingInfo?: unknown;
+  geometryType?: string;
   labelField?: string | null;
   popup?: PopupSpec;
 };
 
 /** 2D-д талбараар будсан талбайн өнгө: 3D ижил өнгөөр зурна */
 export type PolyPaint = { field: string; colors: Map<string, string> };
+/** 2D-ийн цэгийн өнгө: 3D-ийн радар импульс ижил өнгөтэй */
+export type PointPaint = { field?: string; color: string; colors: Map<string, string> };
+
+const fireflyIds = new Map<string, string>();
+
+/** AGOL-ийн firefly тэмдэг: цагаан цөм, өнгөт гэрэл. Нэг градиентийг бүх цэг хуваална: мянган цэгт SVG шүүлтүүрээс хурдан. */
+function fireflyFill(color: string) {
+  let id = fireflyIds.get(color);
+  if (!id) {
+    id = `dw-firefly-${fireflyIds.size}`;
+    fireflyIds.set(color, id);
+    const NS = "http://www.w3.org/2000/svg";
+    let defs = document.getElementById("dw-firefly-defs");
+    if (!defs) {
+      const svg = document.createElementNS(NS, "svg");
+      svg.setAttribute("width", "0");
+      svg.setAttribute("height", "0");
+      svg.setAttribute("aria-hidden", "true");
+      svg.style.position = "absolute";
+      defs = document.createElementNS(NS, "defs") as unknown as HTMLElement;
+      defs.id = "dw-firefly-defs";
+      svg.append(defs);
+      document.body.append(svg);
+    }
+    const gradient = document.createElementNS(NS, "radialGradient");
+    gradient.id = id;
+    for (const [offset, stop, opacity] of [[0, "#ffffff", 1], [0.16, "#ffffff", 0.95], [0.32, color, 0.95], [0.58, color, 0.4], [1, color, 0]] as const) {
+      const el = document.createElementNS(NS, "stop");
+      el.setAttribute("offset", String(offset));
+      el.setAttribute("stop-color", stop);
+      el.setAttribute("stop-opacity", String(opacity));
+      gradient.append(el);
+    }
+    defs.append(gradient);
+  }
+  return `url(#${id})`;
+}
 
 const ERDENET: L.LatLngExpression = [49.021, 104.122];
 
@@ -71,27 +109,26 @@ const FIRST_VIEW_WAIT_MS = 900;
 
 const FIREFLY_MERGE_PX = 12;
 
-/**
- * Цэгийг ArcGIS Firefly тэмдгээр зурна. Зураг, хэмжээ нь CSS-д: томруулах бүрд олон цэгийн DOM-ыг дахин үүсгэхгүй.
- * esri-leaflet-renderers цэгийн тэмдгийг сервисийнхээр дарж бичдэг тул тогтооно. Талбай, шугамын загварт хүрэхгүй.
- */
-function drawPointsAsFirefly(map: L.Map, fl: esri.FeatureLayer, color: string, size: string) {
+/** ArcGIS-ийн Firefly зурагтай цэг. Зураг, хэмжээ нь CSS-д: томруулах бүрд олон цэгийн DOM-ыг дахин үүсгэхгүй */
+function fireflyMarker(color: string, size: string) {
   const icon = L.divIcon({
     className: `dw-firefly dw-firefly-${color} dw-firefly-${size}`,
     iconSize: null as unknown as L.PointExpression,
     tooltipAnchor: [0, -6],
     popupAnchor: [0, -6],
   });
-  const marker = (_f: unknown, latlng: L.LatLng) => L.marker(latlng, { icon, riseOnHover: true, keyboard: false });
-  Object.defineProperty((fl as unknown as { options: object }).options, "pointToLayer", { get: () => marker, set: () => {} });
+  return (_f: unknown, latlng: L.LatLng) => L.marker(latlng, { icon, riseOnHover: true, keyboard: false });
+}
 
-  // Нэг байршилд олон бичлэг (сорьц бүр) байдаг: тунгалаг гэрэлтэлт давхарлаад хатуу дугуй болохгүйн тулд дэлгэц дээр
-  // ойрхон цэгүүдэд нэг тэмдэг. Томруулахад тусдаа байршлууд салж харагдана
+/**
+ * Нэг байршилд олон бичлэг (сорьц бүр) байдаг: тунгалаг гэрэлтэлт давхарлаад хатуу дугуй болохгүйн тулд дэлгэц дээр
+ * ойрхон цэгүүдэд нэг тэмдэг. Томруулахад тусдаа байршлууд салж харагдана.
+ */
+function mergeNearbyFireflies(map: L.Map, fl: esri.FeatureLayer) {
   const onePerPlace = () => {
     const zoom = map.getZoom();
     const markers: { element: HTMLElement; place: string }[] = [];
     fl.eachFeature?.((l: L.Layer) => {
-      // Давхарга талбай, шугам байж болно: зөвхөн цэгт хамаатай
       const element = l instanceof L.Marker ? l.getElement() : undefined;
       if (!element) return;
       const p = map.project((l as L.Marker).getLatLng(), zoom);
@@ -456,6 +493,8 @@ export function attachLabels(map: L.Map, fl: esri.FeatureLayer, field: string, p
 }
 
 const POINT_SIZES: Record<string, number> = { s: 4, m: 6, l: 9 };
+/** Гэрлийн тойрог цэгээс том: цөм нь өмнөх цэгийн хэмжээтэй ойролцоо харагдана */
+const FIREFLY_GLOW = 2;
 const zoomFactor = (z: number) => Math.min(1.4, Math.max(0.6, 0.6 + (z - 10) * 0.12));
 const FIREFLY_PX = 36; // тэмдгийн (гэрэлтэлтийн хамт) хэмжээ, zoomFactor = 1 үед
 
@@ -535,7 +574,7 @@ function colorScaleFromFeatures(url: string, token: string | null, where: string
   });
 }
 
-export default function MapWidget({ widget }: { widget: Widget }) {
+export default function MapWidget({ widget, startBasemap }: { widget: Widget; startBasemap?: string }) {
   const prefs = useContext(PrefsCtx);
   const [styleOpen, setStyleOpen] = useState(false);
   const [pickers, setPickers] = useState<
@@ -558,6 +597,9 @@ export default function MapWidget({ widget }: { widget: Widget }) {
   const [dim, setDim] = useState<"2d" | "3d">("2d");
   const [source, setSource] = useState<{ layers: MapLayer[]; token: string | null } | null>(null);
   const polyPaint = useRef(new Map<string, PolyPaint>());
+  const pointPaint = useRef(new Map<string, PointPaint>());
+  const firefly = !widget.plainPoints;
+  const pointFill = (color: string) => (firefly ? fireflyFill(color) : color);
   const labelOf = useRef(new Map<string, string | null>());
   const [zoomTo, setZoomTo] = useState<Extent4326 | null>(null);
 
@@ -600,7 +642,6 @@ export default function MapWidget({ widget }: { widget: Widget }) {
 
         const overlays: Record<string, L.Layer> = {};
         const visibleLayers: L.Layer[] = [];
-        const addAfter = new Map<L.Layer, Promise<void>>();
         // Анхны харагдац: харагдах давхаргуудын цэг хамгийн их төвлөрсөн хэсэг рүү томруулна
         // Хил (аймаг, сум, стратегийн хил) давхаргыг тооцохгүй — өгөгдлийн давхарга (лиценз, цооног…) руу томруулна
         const extents: Promise<{ items: ExtentItem[]; bounds: L.LatLngBounds | null; boundary: boolean }>[] = [];
@@ -608,19 +649,21 @@ export default function MapWidget({ widget }: { widget: Widget }) {
           const opts = { url: lyr.url, opacity: lyr.opacity, token: token ?? undefined };
           let layer: L.Layer;
           if (lyr.kind === "feature") {
-            const pr = pointRenderer(lyr.drawingInfo);
+            const pr = pointRenderer(lyr.drawingInfo) ?? (firefly && /point/i.test(lyr.geometryType ?? "") ? {} : null);
             const boundary = isBoundaryLayer(lyr);
             const pref = prefs.get(colorKey(lyr.id));
             // Webmap-ын тэмдэглэгээгээр талбай/шугам эсэх — тэдгээрийг талбараар өнгөлөх үед дүүргэлтээр будна
             const polyLike = isPolyRenderer(lyr.drawingInfo);
-            // Хэрэглэгч талбараар өнгөлөхийг өөрөө сонгоогүй бол цэг бүр Firefly
-            const firefly = widget.firefly && !polyLike && !(pref && pref !== ONE_COLOR) ? widget.firefly : null;
-            const colorBy = firefly || pref === ONE_COLOR ? undefined : pref ?? pr?.field;
+            // Байгаль орчны самбар: цэгэн давхарга ArcGIS Firefly зургаар, хэрэглэгч талбараар өнгөлөхийг сонгоогүй бол.
+            // Төрлийг нь урьдчилан мэднэ: талбайд pointToLayer байвал esri-leaflet шинэчлэлтийн үед алдаа шиддэг
+            const isPoint = Boolean(pointRenderer(lyr.drawingInfo)) || /point/i.test(lyr.geometryType ?? "");
+            const arcgisFirefly = widget.firefly && isPoint && !(pref && pref !== ONE_COLOR) ? widget.firefly : null;
+            const colorBy = arcgisFirefly || pref === ONE_COLOR ? undefined : pref ?? pr?.field;
             const polyColor = polyLike && Boolean(pref && pref !== ONE_COLOR);
-            const ownPoints = !firefly && !polyLike && Boolean(pr || (pref && pref !== ONE_COLOR));
-            const sizePref = prefs.get(sizeKey(lyr.id)) ?? (firefly || pref ? "m" : "s");
+            const ownPoints = !arcgisFirefly && !polyLike && Boolean(pr || (pref && pref !== ONE_COLOR));
+            const sizePref = prefs.get(sizeKey(lyr.id)) ?? (arcgisFirefly || pref ? "m" : "s");
             const baseR = POINT_SIZES[sizePref] ?? POINT_SIZES.m;
-            const radius = () => baseR * zoomFactor(map.getZoom());
+            const radius = () => baseR * (firefly ? FIREFLY_GLOW : 1) * zoomFactor(map.getZoom());
             const colors = new Map<string, string>();
             polyPaint.current.delete(lyr.id);
             const keyOf = (v: unknown) => (v === null || v === undefined || v === "" ? "Хоосон" : String(v));
@@ -640,6 +683,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
               },
               ...(hasRenderer(lyr.drawingInfo) && !ownPoints && !polyColor ? { drawingInfo: lyr.drawingInfo } : {}),
               ...(polyColor ? { ignoreRenderer: true, style: polyStyle } : {}),
+              ...(arcgisFirefly ? { ignoreRenderer: true, pointToLayer: fireflyMarker(arcgisFirefly, sizePref) } : {}),
               // Цэгэн давхаргад webmap-ын тэмдэглэгээний оронд өөрийн тод дугуй тэмдэг
               ...(ownPoints
                 ? {
@@ -647,28 +691,20 @@ export default function MapWidget({ widget }: { widget: Widget }) {
                     pointToLayer: (f: { properties: Record<string, unknown> }, latlng: L.LatLng) => {
                       const v = colorBy ? f.properties[colorBy] : undefined;
                       const c = !colorBy ? PALETTE[0] : colors.get(v === null || v === undefined || v === "" ? "Хоосон" : String(v)) ?? "#8a9a96";
-                      return L.circleMarker(latlng, { radius: radius(), color: "#ffffff", weight: baseR >= 6 ? 1.5 : 1, fillColor: c, fillOpacity: 0.95 });
+                      if (!firefly) return L.circleMarker(latlng, { radius: radius(), color: "#ffffff", weight: baseR >= 6 ? 1.5 : 1, fillColor: c, fillOpacity: 0.95 });
+                      return L.circleMarker(latlng, { radius: radius(), stroke: false, fillColor: fireflyFill(c), fillOpacity: 1 });
                     },
                   }
                 : {}),
             } as esri.FeatureLayerOptions);
             guardEarlyMove(fl);
-            const infoReady = layerInfo(lyr.url, token);
-            // Зөвхөн цэгэн давхаргад: талбайд pointToLayer байвал esri-leaflet шинэчлэлтийн үед алдаа шиддэг. Webmap-д
-            // тэмдэглэгээгүй давхаргын төрөл нь мэдэгдтэл зурж эхлэхгүй
-            if (firefly) {
-              addAfter.set(
-                fl,
-                infoReady.then((info) => {
-                  if (/point/i.test(info.geometryType ?? "")) drawPointsAsFirefly(map, fl, firefly, sizePref);
-                }),
-              );
-            }
+            if (arcgisFirefly) mergeNearbyFireflies(map, fl);
             if (ownPoints) {
+              pointPaint.current.set(lyr.id, { field: colorBy, color: PALETTE[0], colors });
               map.on("zoomend", () => fl.eachFeature?.((m: L.Layer) => (m as L.CircleMarker).setRadius?.(radius())));
             }
             // Тохиргоо: цэгэн давхаргад «Өнгө, хэмжээ», бүх давхаргад «Шошго»
-            infoReady.then((info) => {
+            layerInfo(lyr.url, token).then((info) => {
               if (cancelled || !lyr.visible) return;
               const point = /point/i.test(info.geometryType ?? "");
               // Сонгогчид webmap-ын popup дахь ойлгомжтой нэрийг («Бүс» биш «Газар ашиглалтын бүс») харуулна
@@ -682,7 +718,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
               const labelDef = webLabel ?? pickLabelField(labelFields, info.displayField);
               setPickers((ps) => [
                 ...ps.filter((p) => p.id !== lyr.id),
-                { id: lyr.id, title: lyr.title, point, fields, def: firefly ? undefined : pr?.field, labelFields, labelDef },
+                { id: lyr.id, title: lyr.title, point, fields, def: arcgisFirefly ? undefined : pr?.field, labelFields, labelDef },
               ]);
               const labelPref = prefs.get(labelKey(lyr.id));
               const labelBy = labelPref === NO_LABEL ? undefined : labelPref ?? labelDef;
@@ -700,7 +736,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
                   } else fl.eachFeature?.((m: L.Layer) => {
                     const feat = (m as L.Layer & { feature?: { properties: Record<string, unknown> } }).feature;
                     const v = feat?.properties[colorBy];
-                    (m as L.CircleMarker).setStyle?.({ fillColor: colors.get(v === null || v === undefined || v === "" ? "Хоосон" : String(v)) ?? "#8a9a96" });
+                    (m as L.CircleMarker).setStyle?.({ fillColor: pointFill(colors.get(v === null || v === undefined || v === "" ? "Хоосон" : String(v)) ?? "#8a9a96") });
                   });
                   // Тайлбарын гарчиг — webmap-ын popup дахь нэр («Газар ашиглалтын бүс»), эс бөгөөс alias
                   const alias = lyr.popup?.fields?.find((f) => f.name === colorBy)?.label ?? fields.find((f) => f.name === colorBy)?.alias ?? colorBy;
@@ -746,7 +782,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
               else if (t.feature?.id !== undefined) (fl as unknown as { resetStyle: (id: number) => void }).resetStyle(t.feature.id);
             });
             // Webmap-ын цэгийн ангиллын тайлбар Firefly-тэй таарахгүй. Талбайнх хэвээр
-            if (lyr.visible && !ownPoints && !polyColor && !(firefly && pr)) {
+            if (lyr.visible && !ownPoints && !polyColor && !arcgisFirefly) {
               const items = rendererLegend(lyr.drawingInfo);
               if (items.length) setLegends((ls) => [...ls.filter((x) => x.id !== lyr.id), { id: lyr.id, field: lyr.title, items }]);
             }
@@ -798,12 +834,8 @@ export default function MapWidget({ widget }: { widget: Widget }) {
           shown = true;
           clearTimeout(showTimer);
           // Webmap-д тохируулсан Esri суурь зургаар эхэлж, хэрэглэгч gallery-ээс сольж болно
-          removeGallery = addBasemapGallery(map, widget.firefly ? "firefly" : basemapKeyFor(basemap_title, basemap));
-          for (const l of visibleLayers) {
-            const wait = addAfter.get(l);
-            if (wait) void wait.then(() => !cancelled && l.addTo(map));
-            else l.addTo(map);
-          }
+          removeGallery = addBasemapGallery(map, startBasemap ?? (widget.firefly ? "firefly" : basemapKeyFor(basemap_title, basemap)));
+          visibleLayers.forEach((l) => l.addTo(map));
           if (Object.keys(overlays).length) L.control.layers({}, overlays, { collapsed: true, position: "topright" }).addTo(map);
           setLoading(false);
         };
@@ -908,6 +940,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
               filtersFor={(id) => filtersFor(`${widget.id}#${id}`, widget.id)}
               filterKey={filterKey}
               polyPaint={polyPaint.current}
+              pointPaint={pointPaint.current}
               labelOf={labelOf.current}
               zoomTo={zoomTo}
             />
@@ -984,7 +1017,7 @@ export default function MapWidget({ widget }: { widget: Widget }) {
                 <b title={lg.field}>{lg.field}</b>
                 {lg.items.slice(0, 8).map((it) => (
                   <span key={it.value} title={it.value}>
-                    <i className={it.shape ?? "dot"} style={{ background: it.color, ...(it.shape === "dot" ? {} : { borderColor: it.stroke }) }} />
+                    <i className={`${it.shape ?? "dot"}${firefly ? "" : " flat"}`} style={it.shape === "dot" || !it.shape ? (firefly ? { color: it.color } : { background: it.color }) : { background: it.color, borderColor: it.stroke }} />
                     {it.value}
                     <em>{it.n ?? ""}</em>
                   </span>

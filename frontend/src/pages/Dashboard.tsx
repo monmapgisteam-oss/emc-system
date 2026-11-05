@@ -1,247 +1,157 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { api, MonitoringPoint, Status } from "../api";
-import MapView from "../components/MapView";
-import { STATUS, STATUS_HEX, axisProps, fmt } from "../components/ui";
+import { api, Department } from "../api";
+import { DeptIcon } from "../components/icons";
+import { DashboardProvider, PrefsCtx } from "../dashboard/context";
+import MapWidget from "../dashboard/MapWidget";
+import { IndicatorWidget, SerialChartWidget } from "../dashboard/widgets";
+import "../dashboard/dashboard.css";
+import type { DashboardDef, Widget } from "../dashboard/types";
 
-const ORDER: Status[] = ["alarm", "warning", "normal", "no_data"];
-// Чиг хандлагын шугамын өнгө — ангиллын палитраас дараалан (төлөвийн өнгийг давхар хэрэглэхгүй)
-const TREND_COLORS = ["#3987e5", "#d95926", "#9085e9", "#199e70"];
-const TREND_MAX = 4;
+const HOLES = "ef613a0502c74faf9ed7ed95412dd4e0";
+const DUMPS = "d794edd303ad4a788a91b9378dfc0461";
+const LAND = "e1ec8b20a6d347e68e64349abf134d50";
+const LICENCES = "b84bc4b55e2d45d99e2e85cb8aaf08c3";
+const CABLES = "8cbeb0e832c345c88edf491a518af092";
+const CABLE_SURVEY = "a7183226293c4b2788e7b00164fba242";
+const TREES = "25408bc53b2142ec91ca41b0720f644c";
+const DUST = "2fc14c08d9994d64aa7a3ae0beeb5ac7";
 
+const JADE = "#34d0ae";
 
-/** Туршилтын цэгийн «DEMO-» угтварыг хасна */
-const shortCode = (code: string) => code.replace(/^DEMO-/i, "");
+type Metric = { item: string; widget: string; label: string; icon: string; unit: string };
 
-type Trend = { id: number; code: string; color: string; rows: { t: number; v: number }[] };
+/** Үзүүлэлтүүд хэлтсийн самбарын индикаторыг шууд ашиглана: тоо нь самбартайгаа үргэлж ижил */
+const METRICS: Record<string, Metric[]> = {
+  GMH: [
+    { item: HOLES, widget: "a050a4da", label: "Өрөмдсөн цооног", icon: "holes", unit: "ш" },
+    { item: HOLES, widget: "ee661e9e", label: "Цооногийн нийт гүн", icon: "depth", unit: "м" },
+    { item: DUMPS, widget: "fbfe6078", label: "Овоолгын хүдэр", icon: "ore", unit: "мян.тн" },
+    { item: LAND, widget: "83427b8c", label: "Нэгж талбар", icon: "parcel", unit: "ш" },
+    { item: LAND, widget: "763c3bfc", label: "Газрын хэмжээ", icon: "parcel", unit: "га" },
+    { item: LICENCES, widget: "9d648b13", label: "Лиценз", icon: "licence", unit: "ш" },
+  ],
+  COM: [
+    { item: CABLES, widget: "b9749e13", label: "Физик кабель", icon: "cable", unit: "м" },
+    { item: CABLES, widget: "7ad9738a", label: "Шилэн кабель", icon: "cable", unit: "м" },
+    { item: CABLE_SURVEY, widget: "39ed8593", label: "Хийсэн засвар", icon: "worked", unit: "ш" },
+  ],
+  BOH: [
+    { item: TREES, widget: "2cadc59b", label: "Нийт мод", icon: "tree", unit: "ш" },
+    { item: TREES, widget: "95eadb59", label: "Ногоон талбай", icon: "parcel", unit: "га" },
+    { item: DUST, widget: "64d767a3", label: "Тоосны дэгдэлт", icon: "wind", unit: "удаа" },
+  ],
+};
 
-/** Анхааруулгатай цэгүүдийн хурдны өөрчлөлт — босго шугамтай */
-function VelocityTrend({ trends, warn, alarm }: { trends: Trend[]; warn?: number; alarm?: number }) {
-  const navigate = useNavigate();
-  const fmtDay = (t: number) => {
-    const d = new Date(t);
-    return `${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
-  };
-  const thLabel = (v: number, color: string) => ({ value: fmt(v, 1), position: "right" as const, fill: color, fontSize: 10 });
+/** Он жилийн chart-ууд: газрын бүртгэлийнх зурагтай нэг шүүлтүүртэй */
+const CHARTS = [
+  { item: LAND, widget: "efe35614", code: "GMH" },
+  { item: HOLES, widget: "emc-year-depth", code: "GMH" },
+  { item: CABLES, widget: "8a024fd9", code: "COM" },
+];
+
+type Defs = Record<string, DashboardDef>;
+
+function labelled(w: Widget, m: Metric): Widget {
+  const text = (t: string) => ({ textInfo: { text: t } });
+  return { ...w, icon: m.icon, iconWide: false, unit: m.unit, defaultSettings: { ...w.defaultSettings, topSection: text(m.label), middleSection: text("{value}"), bottomSection: text("") } };
+}
+
+/** Эрхгүйгээс нээгдээгүй самбарын үзүүлэлт харагдахгүй: зөвхөн баталгаатай тоо */
+function Kpi({ metric, def, onOpen }: { metric: Metric; def?: DashboardDef; onOpen: () => void }) {
+  const widget = def?.widgets.find((w) => w.id.startsWith(metric.widget));
+  if (!def || !widget) return <div className="ov-kpi blank" />;
   return (
-    <div className="trend">
-      <div className="legend trend-legend">
-        {trends.map((t) => (
-          <span key={t.id} onClick={() => navigate(`/displacement/points?point=${t.id}`)}>
-            <i style={{ background: t.color }} />
-            {shortCode(t.code)}
-          </span>
-        ))}
-      </div>
-      <div className="trend-chart">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart margin={{ top: 6, right: 24, left: 0, bottom: 0 }}>
-            <CartesianGrid vertical={false} stroke="var(--grid)" />
-            <XAxis
-              dataKey="t"
-              type="number"
-              scale="time"
-              domain={["dataMin", "dataMax"]}
-              tickFormatter={fmtDay}
-              {...axisProps}
-              minTickGap={40}
-              allowDuplicatedCategory={false}
-            />
-            <YAxis {...axisProps} axisLine={false} width={30} tickFormatter={(v: number) => fmt(v, 1)} />
-            <Tooltip
-              content={({ active, payload, label }) =>
-                active && payload?.length ? (
-                  <div className="chart-tooltip">
-                    <div className="t">{new Date(Number(label)).toLocaleString("mn-MN", { dateStyle: "short", timeStyle: "short" })}</div>
-                    {payload.map((p) => (
-                      <div className="row" key={String(p.name)}>
-                        <span className="dot" style={{ background: p.color }} />
-                        <span className="nm">{shortCode(String(p.name))}</span>
-                        <b>{fmt(Number(p.value), 2)} мм/хоног</b>
-                      </div>
-                    ))}
-                  </div>
-                ) : null
-              }
-            />
-            {/* Анхааруулгын, аюулын босго — тоо нь шугамын баруун үзүүрт */}
-            {warn !== undefined && (
-              <ReferenceLine y={warn} stroke={STATUS_HEX.warning} strokeDasharray="4 4" strokeOpacity={0.7} label={thLabel(warn, STATUS_HEX.warning)} />
-            )}
-            {alarm !== undefined && (
-              <ReferenceLine y={alarm} stroke={STATUS_HEX.alarm} strokeDasharray="4 4" strokeOpacity={0.7} label={thLabel(alarm, STATUS_HEX.alarm)} />
-            )}
-            {trends.map((t) => (
-              <Line
-                key={t.id}
-                data={t.rows}
-                dataKey="v"
-                name={t.code}
-                stroke={t.color}
-                strokeWidth={1.8}
-                dot={false}
-                activeDot={{ r: 4, stroke: "var(--surface-1)", strokeWidth: 1.5 }}
-                isAnimationActive={false}
-                connectNulls
-              />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+    <div className="ov-kpi" role="link" tabIndex={0} title={`${metric.label}: самбар руу орох`} onClick={onOpen} onKeyDown={(e) => e.key === "Enter" && onOpen()}>
+      <DashboardProvider def={def}>
+        <IndicatorWidget widget={labelled(widget, metric)} />
+      </DashboardProvider>
     </div>
   );
 }
 
-export default function Dashboard() {
+/** Нүүр: хэлтэс бүрийн ерөнхий мэдээлэл, зураг, он жилийн chart. Бүх тоо ArcGIS-ийн бодит давхаргаас. */
+export default function Dashboard({ departments }: { departments: Department[] }) {
   const navigate = useNavigate();
-  const [points, setPoints] = useState<MonitoringPoint[]>([]);
-  const [trends, setTrends] = useState<Trend[] | null>(null);
-  const [error, setError] = useState("");
+  const [defs, setDefs] = useState<Defs>({});
+  const [landPrefs, setLandPrefs] = useState<Record<string, string> | undefined>();
 
   useEffect(() => {
-    api.points(3).then(setPoints).catch((e) => setError(e.message));
+    const items = [...new Set([...Object.values(METRICS).flat(), ...CHARTS].map((m) => m.item))];
+    items.forEach((item) => {
+      api
+        .dashboardDef<DashboardDef>(item)
+        .then((d) => setDefs((all) => ({ ...all, [item]: d })))
+        .catch(() => {});
+    });
+    api.dashboardLayout(LAND).then((l) => setLandPrefs(l?.prefs ?? undefined), () => {});
   }, []);
 
-  const counts = useMemo(() => {
-    const c: Record<Status, number> = { alarm: 0, warning: 0, normal: 0, no_data: 0 };
-    points.forEach((p) => (c[p.summary?.status ?? "no_data"] += 1));
-    return c;
-  }, [points]);
-
-  // Хурдаар эрэмбэлсэн цэгүүд — аюултай нь эхэнд
-  const ranked = useMemo(
-    () =>
-      [...points].sort(
-        (a, b) =>
-          ORDER.indexOf(a.summary?.status ?? "no_data") - ORDER.indexOf(b.summary?.status ?? "no_data") ||
-          (b.summary?.velocity ?? -1) - (a.summary?.velocity ?? -1),
-      ),
-    [points],
-  );
-  const maxV = Math.max(1, ...points.map((p) => p.summary?.velocity ?? 0));
-  const demo = points.some((p) => /^DEMO-/i.test(p.code));
-
-  // Чиг хандлага: анхааруулгатай цэгүүд (байхгүй бол хамгийн хурдан цэгүүд)
-  const flagged = ranked.filter((p) => p.summary?.status === "alarm" || p.summary?.status === "warning");
-  const trendPoints = useMemo(
-    () => (flagged.length ? flagged : ranked.filter((p) => p.summary?.velocity != null)).slice(0, TREND_MAX),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ranked],
-  );
-  useEffect(() => {
-    if (!trendPoints.length) return setTrends(points.length ? [] : null);
-    let cancelled = false;
-    Promise.all(
-      trendPoints.map((p, i) =>
-        api
-          .pointAnalysis(p.id, 3)
-          .then((a) => ({
-            id: p.id,
-            code: p.code,
-            color: TREND_COLORS[i % TREND_COLORS.length],
-            rows: a.series.filter((r) => r.velocity != null).map((r) => ({ t: new Date(r.measured_at).getTime(), v: r.velocity as number })),
-          }))
-          .catch(() => null),
-      ),
-    ).then((res) => !cancelled && setTrends(res.filter((t): t is Trend => Boolean(t && t.rows.length))));
-    return () => {
-      cancelled = true;
-    };
-  }, [trendPoints, points.length]);
-  // Босго — бүх цэгт ижил үед л
-  const same = (k: "warning_velocity" | "alarm_velocity") => {
-    const vals = new Set(trendPoints.map((p) => p[k]));
-    return vals.size === 1 ? [...vals][0] : undefined;
+  const open = (code: string, item?: string) => {
+    if (!item) return navigate(`/dept/${code}`);
+    api.dashboards(code).then(
+      (list) => {
+        const found = list.find((d) => d.item_id === item);
+        navigate(found ? `/dept/${code}?view=${found.id}` : `/dept/${code}`);
+      },
+      () => navigate(`/dept/${code}`),
+    );
   };
 
-  return (
-    <>
-      {error && <div className="page error">Сервертэй холбогдож чадсангүй: {error}</div>}
+  const land = defs[LAND];
+  const map = land?.widgets.find((w) => w.type === "mapWidget");
+  const chartOf = (c: (typeof CHARTS)[number]) => defs[c.item]?.widgets.find((w) => w.id.startsWith(c.widget));
 
-      {/* Газрын зураг бүтэн дэлгэцээр, мэдээлэл нь дээр нь хөвөх самбаруудаар */}
-      <div className="home2">
-        <MapView
-          height="100%"
-          // Төлөвийн мөр (дээр), цэгийн жагсаалт (баруун), хурдны график (доор)-ын ард цэг орохгүй
-          fitPad={(size) => ({ topLeft: [60, 80], bottomRight: [size.x < 1000 ? 260 : 310, Math.max(Math.round(size.y * 0.28), 160) + 40] })}
-          onSelect={(id) => navigate(`/displacement/points?point=${id}`)}
-          points={points
-            .filter((p) => p.lat !== null && p.lon !== null)
-            .map((p) => ({
-              id: p.id,
-              lat: p.lat!,
-              lon: p.lon!,
-              color: STATUS_HEX[p.summary?.status ?? "no_data"],
-              label: `${p.code} — ${STATUS[p.summary?.status ?? "no_data"].label}`,
-              detail: `${fmt(p.summary?.velocity, 2)} мм/хоног · нийт ${fmt(p.summary?.total_mm)} мм`,
-              tag: shortCode(p.code),
-            }))}
-        />
-
-        {/* Төлөв — тоо нь газрын зургийн тайлбар болно */}
-        <div className="float status-strip">
-          <span className="ttl">Уулын цулын шилжилт</span>
-          <span className="total">
-            <b>{points.length}</b> цэг
-          </span>
-          {ORDER.filter((s) => s !== "no_data" || counts.no_data).map((s) => (
-            <span key={s} className="st">
-              <i style={{ background: STATUS_HEX[s] }} />
-              <b style={counts[s] && s !== "no_data" ? { color: STATUS_HEX[s] } : undefined}>{counts[s]}</b>
-              {STATUS[s].label}
-            </span>
-          ))}
-          {demo && <span className="chip demo" title="Цэгүүдийн өгөгдөл туршилтынх (DEMO)">Туршилтын өгөгдөл</span>}
-        </div>
-
-        <section className="float points-float">
-          <header>
-            <h3>Цэгүүд</h3>
-            <span className="unit">мм/хоног</span>
-          </header>
-          {!ranked.length ? (
-            <div className="empty">Цэг алга</div>
-          ) : (
-            <ul className="rank">
-              {ranked.map((p) => {
-                const st = p.summary?.status ?? "no_data";
-                const v = p.summary?.velocity;
-                const dtf = p.summary?.days_to_failure;
-                return (
-                  <li
-                    key={p.id}
-                    className={st}
-                    onClick={() => navigate(`/displacement/points?point=${p.id}`)}
-                    title={`${p.code}${p.sector ? ` · ${p.sector}` : ""} — ${STATUS[st].label}`}
-                  >
-                    <span className="dot" style={{ background: STATUS_HEX[st] }} />
-                    <span className="code">{shortCode(p.code)}</span>
-                    <span className="bar">
-                      <i style={{ width: `${v ? Math.max(2, (v / maxV) * 100) : 0}%`, background: STATUS_HEX[st] }} />
-                    </span>
-                    <b>{v == null ? "—" : fmt(v, 2)}</b>
-                    {st === "alarm" && dtf != null && <small>Нуралт ≈ {fmt(dtf, 1)} хоног</small>}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        <section className="float trend-float">
-          <header>
-            <h3>Хурд, мм/хоног</h3>
-          </header>
-          {trends === null ? (
-            <div className="empty">…</div>
-          ) : trends.length ? (
-            <VelocityTrend trends={trends} warn={same("warning_velocity")} alarm={same("alarm_velocity")} />
-          ) : (
-            <div className="empty">Хэмжилт алга</div>
-          )}
-        </section>
+  const body = (
+    <div className="ov-body">
+      <div className="ov-map">
+        {land && map && (
+          <PrefsCtx.Provider value={{ version: landPrefs ? 1 : 0, get: (key) => landPrefs?.[key], set: () => {} }}>
+            <MapWidget widget={{ ...map, topCaption: undefined }} startBasemap="imagery" />
+          </PrefsCtx.Provider>
+        )}
       </div>
-    </>
+      <div className="ov-charts">
+        {CHARTS.map((c) => {
+          const widget = chartOf(c);
+          if (!widget) return <div key={c.widget} className="ov-chart blank" />;
+          const chart = <SerialChartWidget widget={{ ...widget, chartConfig: { ...widget.chartConfig, endLabelInside: true } }} />;
+          return (
+            <div key={c.widget} className="ov-chart">
+              {c.item === LAND ? chart : <DashboardProvider def={defs[c.item]}>{chart}</DashboardProvider>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="ov">
+      <div className="ov-band">
+        {departments.map((d) => {
+          const metrics = METRICS[d.code];
+          return (
+            <section key={d.code} className={`ov-sec ov-${d.code.toLowerCase()}`}>
+              <button className="ov-head" onClick={() => open(d.code)} title={`${d.name}: самбарууд`}>
+                <DeptIcon code={d.code} color={JADE} size={16} />
+                <b>{d.name}</b>
+                <span>{d.dashboard_count} самбар ›</span>
+              </button>
+              {metrics ? (
+                <div className="ov-grid" style={{ gridTemplateColumns: `repeat(${metrics.length}, minmax(0, 1fr))` }}>
+                  {metrics.map((m) => (
+                    <Kpi key={m.widget} metric={m} def={defs[m.item]} onOpen={() => open(d.code, m.item)} />
+                  ))}
+                </div>
+              ) : (
+                <button className="ov-open" onClick={() => open(d.code)}>Самбар нээх ›</button>
+              )}
+            </section>
+          );
+        })}
+      </div>
+      {land ? <DashboardProvider def={land}>{body}</DashboardProvider> : body}
+    </div>
   );
 }

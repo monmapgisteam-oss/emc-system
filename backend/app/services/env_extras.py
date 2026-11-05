@@ -453,11 +453,24 @@ def _air_standard_charts(dash: dict, dust: dict) -> None:
         dash["widgets"] = [*dash["widgets"], *(w for w, _ in charts)]
 
 
-def _firefly(color: str, run):
-    """Газрын зургийн цэг ArcGIS Firefly тэмдгээр. Өнгө: frontend-ийн `.dw-firefly-<color>`."""
+def _with_plain_points(fn):
+    """Байгаль орчны зурагт бусад хэлтсийн SVG firefly биш, энгийн дугуй цэг."""
+
+    def apply(dash: dict) -> None:
+        fn(dash)
+        for w in dash["widgets"]:
+            if w.get("type") == "mapWidget":
+                w["plainPoints"] = True
+
+    return apply
+
+
+def _firefly(color: str, fn):
+    """Цэг нь ArcGIS-ийн Firefly зургаар: `.dw-firefly-<color>`. Хэрэглэгч талбараар өнгөлбөл энгийн дугуй цэг."""
+    plain = _with_plain_points(fn)
 
     def styled(dash: dict) -> None:
-        run(dash)
+        plain(dash)
         for w in dash["widgets"]:
             if w["type"] == "mapWidget":
                 w["firefly"] = color
@@ -470,7 +483,7 @@ EXTRAS = {
     SOIL: _firefly("purple", _soil),
     AIR: _firefly("white", _air),
     DUST: _firefly("cyan", _dust),
-    RECLAMATION: _plain,
-    GROVE: _plain,
-    TREES: _plain,
+    RECLAMATION: _with_plain_points(_plain),
+    GROVE: _with_plain_points(_plain),
+    TREES: _with_plain_points(_plain),
 }

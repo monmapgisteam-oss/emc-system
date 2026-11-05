@@ -217,6 +217,7 @@ def _build(item_id: str, prefix: str, title: str, url: str, metrics: dict, cards
         "itemId": item_id,
         "clickFields": {layer_id: "Сорьцын_нэр"},
         "firefly": firefly,
+        "plainPoints": True,
         "events": [{"type": "selectionChanged", "actions": [{"type": "filter", "targets": data_targets}]}],
     }
     widgets = [*indicators.values(), map_widget, pie, *charts.values()]

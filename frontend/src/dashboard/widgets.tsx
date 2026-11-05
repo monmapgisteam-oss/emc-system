@@ -151,6 +151,11 @@ function useCategorySelection(widget: Widget, field: string | undefined) {
 
 const KPI_ICON_VALUE = 22; // дүрстэй KPI-н тооны дээд хэмжээ, px
 const KPI_ICONS: Record<string, string> = {
+  parcel: "M4 7l6-3 5 3 5-3v13l-5 3-5-3-6 3zM10 4v13M15 7v13",
+  licence: "M6 3h9l4 4v14H6zM15 3v4h4M9 12h7M9 16h7",
+  cable: "M3 7h6a4 4 0 0 1 4 4v2a4 4 0 0 0 4 4h4",
+  tree: "M12 3l5 7h-3l4 6H6l4-6H7zM12 16v5",
+  wind: "M3 8h11a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h7",
   holes: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
   depth: "M4 4h16M12 8v12M7 15l5 5 5-5",
   average: "M5 20v-7M12 20V6M19 20v-9M3 12h18",

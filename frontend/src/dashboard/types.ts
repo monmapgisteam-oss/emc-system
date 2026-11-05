@@ -56,10 +56,11 @@ export type Widget = {
   itemId?: string;
   /** Газрын зураг: давхарга бүрт объект дээр дарахад шүүх талбар */
   clickFields?: Record<string, string>;
-  /** Газрын зураг: цэгийг энэ өнгийн ArcGIS Firefly тэмдгээр зурна, суурь зураг нь Firefly */
+  /** Газрын зураг: цэгэн давхаргыг энэ өнгийн ArcGIS Firefly тэмдгээр зурна, суурь зураг нь Firefly */
   firefly?: "cyan" | "water" | "purple" | "white";
   /** Газрын зураг: цэг, шошго товчны доор, зургийн захаар тасрахгүй */
   labelsInside?: boolean;
+  plainPoints?: boolean; // зурагт SVG firefly биш, энгийн дугуй цэг
   // indicator
   defaultSettings?: {
     topSection?: { textInfo?: { text?: string } };
