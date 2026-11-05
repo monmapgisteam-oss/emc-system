@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
@@ -12,7 +13,7 @@ from .config import settings
 from .database import Base, SessionLocal, engine
 from .routers import analytics, dashboards, datasets, departments, displacement
 from .routers import auth as auth_router
-from .seed import seed_departments, apply_sections
+from .seed import apply_groups, apply_sections, seed_departments
 from .services import arcgis
 
 FRONTEND_DIST = (Path(__file__).resolve().parents[2] / "frontend" / "dist").resolve()
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         seed_departments(db)
         apply_sections(db)
+        apply_groups(db)
     yield
 
 
@@ -66,6 +68,8 @@ async def require_login(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"], allow_credentials=True
 )
+# Dashboard-ын тодорхойлолт, frontend-ийн JS нь шахахад 10 дахин хүртэл багасна
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 for r in (auth_router, departments, datasets, dashboards, displacement, analytics):
     app.include_router(r.router)

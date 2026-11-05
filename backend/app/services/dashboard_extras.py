@@ -1,5 +1,10 @@
 """ArcGIS dashboard дээр байхгүй, энэ системд нэмсэн график. Тодорхойлолтыг ачаалсны дараа нэмнэ."""
 import copy
+import logging
+
+from app.services import env_extras
+
+logger = logging.getLogger(__name__)
 
 EXPLORATION = "e009bee96a01463da6ea562c3ec8f030"
 HOLES = "ef613a0502c74faf9ed7ed95412dd4e0"
@@ -1044,7 +1049,7 @@ def _licences(dash: dict) -> None:
         w["defaultSettings"].setdefault("bottomSection", {}).setdefault("textInfo", {})["text"] = ""
 
 
-EXTRAS = {EXPLORATION: _exploration, HOLES: _holes, WATER_IN: _water_in, WATER_OUT: _water_out, WATER_GENERAL: _water_general, WATER_OTHER: _water_other, GOVIL: _govil, PIEZOMETER: _piezometer, RADIAL_WELLS: _radial_wells, LAND_REGISTER: _land_register, LICENCES: _licences, LAKE: _lake, HISTORY: _history, RESERVES: _reserves, DUMPS: _dumps, DRILL_REPORT: _drill_report, DRILL_MACHINES: _drill_machines, HOLE_REPORT: _hole_report}
+EXTRAS = {EXPLORATION: _exploration, HOLES: _holes, WATER_IN: _water_in, WATER_OUT: _water_out, WATER_GENERAL: _water_general, WATER_OTHER: _water_other, GOVIL: _govil, PIEZOMETER: _piezometer, RADIAL_WELLS: _radial_wells, LAND_REGISTER: _land_register, LICENCES: _licences, LAKE: _lake, HISTORY: _history, RESERVES: _reserves, DUMPS: _dumps, DRILL_REPORT: _drill_report, DRILL_MACHINES: _drill_machines, HOLE_REPORT: _hole_report, **env_extras.EXTRAS}
 
 
 def apply(dash: dict) -> dict:
@@ -1053,5 +1058,10 @@ def apply(dash: dict) -> dict:
         return dash
     # ArcGIS-ийн тодорхойлолт кэштэй тул хуулбар дээр өөрчилнө
     out = copy.deepcopy(dash)
-    fn(out)
+    try:
+        fn(out)
+    except Exception:
+        # ArcGIS дээр виджет устсан г.м.: самбар унахгүй, нэмэлтгүйгээр анхны хэлбэрээрээ харагдана
+        logger.exception("Dashboard %s: нэмэлт тохиргоо хэрэгжсэнгүй", dash.get("id"))
+        return dash
     return out

@@ -1,6 +1,6 @@
 import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, DashboardLayoutOut } from "../api";
-import { ChartPrefsCtx, ChartKind, DashboardProvider, PrefsCtx, useDashboard } from "./context";
+import { ChartPrefsCtx, ChartKind, DashboardProvider, PrefsCtx, useDashboard, useWidgetData } from "./context";
 import MapWidget from "./MapWidget";
 import { CategorySelector, DateSelector } from "./selectors";
 import type { DashboardDef, LayoutElement, Widget } from "./types";
@@ -151,22 +151,38 @@ function tabCaption(c: LayoutElement, widgets: Record<string, Widget>): string {
 // Төлөвийг байрлалын хэмжээтэй адил хадгална: [2] = дэлгэсэн, [1] = табаар.
 const EXPANDED = 2;
 
+/** Нуугдсан табын статистик: харагдах виджетүүдтэй нэг асуулгад нэгдэж, таб солиход шууд харагдана */
+function TabPrefetch({ widget }: { widget: Widget }) {
+  useWidgetData(widget);
+  return null;
+}
+
 function Tabs({ el, widgets }: { el: LayoutElement; widgets: Record<string, Widget> }) {
-  const { dashId, defaults, onSaved } = useContext(LayoutCtx);
+  const { dashId, defaults, onSaved, modalTabs } = useContext(LayoutCtx);
   const parentHorizontal = useContext(ParentDirCtx);
   const [active, setActive] = useState(0);
   const items = el.elements ?? [];
   const current = items[Math.min(active, items.length - 1)];
   const key = layoutKey(dashId, `tabs:${el.id}`);
   const [expanded, setExpanded] = useState(() => {
+    if (modalTabs) return false;
     const local = readSizes(key, 1);
     const server = defaults[`tabs:${el.id}`];
     return (local ?? server)?.[0] === EXPANDED;
   });
 
+  // Дэлгэц дүүрэн горим: Esc-ээр хаагдана, дараагийн удаа нээхэд хуудсыг таглаж эхлэхгүй (хадгалахгүй)
+  useEffect(() => {
+    if (!modalTabs || !expanded) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setExpanded(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modalTabs, expanded]);
+
   const toggle = () => {
     const next = !expanded;
     setExpanded(next);
+    if (modalTabs) return;
     try {
       localStorage.setItem(key, JSON.stringify([next ? EXPANDED : 1]));
     } catch {
@@ -198,6 +214,10 @@ function Tabs({ el, widgets }: { el: LayoutElement; widgets: Record<string, Widg
 
   return (
     <div className="dw-tabs">
+      {items.map((c) => {
+        const hidden = c !== current && c.type === "itemLayoutElement" ? widgets[c.id] : undefined;
+        return hidden?.datasets?.[0]?.statisticDefinitions?.length ? <TabPrefetch key={c.id} widget={hidden} /> : null;
+      })}
       <div className="dw-tabs-body">{current && <LayoutNode el={current} widgets={widgets} />}</div>
       <nav className={items.some((c) => c.tabLabel) ? "dw-tabstrip short" : "dw-tabstrip"}>
         {items.map((c, i) => (
@@ -217,11 +237,12 @@ function Tabs({ el, widgets }: { el: LayoutElement; widgets: Record<string, Widg
 
 // ---- Самбарын хэмжээг чирж өөрчлөх. Хэмжээг dashboard бүрээр энэ хөтөч дээр санана.
 // defaults — серверт хадгалсан бүх хэрэглэгчийн үндсэн хэмжээ ({stackId: [...]})
-const LayoutCtx = createContext<{ dashId: string; version: number; defaults: Record<string, number[]>; onSaved: () => void }>({
+const LayoutCtx = createContext<{ dashId: string; version: number; defaults: Record<string, number[]>; onSaved: () => void; modalTabs: boolean }>({
   dashId: "",
   version: 0,
   defaults: {},
   onSaved: () => {},
+  modalTabs: false,
 });
 const layoutKey = (dashId: string, stackId: string) => `emc-layout:${dashId}:${stackId}`;
 const MIN_SHARE = 0.06; // самбар хамгийн багадаа хэсгийн 6%
@@ -292,7 +313,7 @@ function Stack({ el, widgets }: { el: LayoutElement; widgets: Record<string, Wid
   const arcgisSizes = kids.map((c) => (horizontal ? c.width : c.height) || 1);
   const serverSizes = defaults[el.id];
   const initial =
-    serverSizes && serverSizes.length === kids.length ? serverSizes : (autoSizes(el, horizontal, widgets) ?? arcgisSizes);
+    serverSizes && serverSizes.length === kids.length ? serverSizes : ((!el.keepSizes && autoSizes(el, horizontal, widgets)) || arcgisSizes);
   const [sizes, setSizes] = useState<number[]>(() => readSizes(key, kids.length) ?? initial);
   const sizesRef = useRef(sizes);
   sizesRef.current = sizes;
@@ -517,7 +538,7 @@ export default function DashboardView({ itemId, title }: { itemId: string; title
 
   return (
     <DashboardProvider def={def}>
-      <div className="dw-view">
+      <div className={`dw-view ${def.theme ? `dw-${def.theme}` : ""}`}>
       <div className="dw-header">
         <h2>{tameCaps(def.header?.title || def.title)}</h2>
         <div className="dw-header-selectors">
@@ -531,7 +552,7 @@ export default function DashboardView({ itemId, title }: { itemId: string; title
       <div className="dw-root">
         {layoutRoot ? (
           <LayoutCtx.Provider
-            value={{ dashId: itemId, version: layoutVersion, defaults: serverLayout?.sizes ?? {}, onSaved: () => rerender((n) => n + 1) }}
+            value={{ dashId: itemId, version: layoutVersion, defaults: serverLayout?.sizes ?? {}, onSaved: () => rerender((n) => n + 1), modalTabs: def.theme === "env" }}
           >
             <PrefsCtx.Provider
               value={{

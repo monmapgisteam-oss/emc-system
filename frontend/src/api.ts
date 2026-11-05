@@ -108,6 +108,7 @@ export const UNAUTHORIZED_EVENT = "emc:unauthorized";
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { credentials: "same-origin", ...init });
   if (res.status === 401 && !path.startsWith("/api/auth/login")) {
+    forgetClientData();
     window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
   }
   if (!res.ok) {
@@ -156,6 +157,26 @@ function memoized<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
 const forgetDashboards = () => [...memo.keys()].filter((k) => k.startsWith("dashboards:")).forEach((k) => memo.delete(k));
 
+// Сүүлд харсан виджетийн хариу: dashboard-ыг дахин нээхэд шууд харагдаж, ард нь шинэчлэгдэнэ
+const seenResults = new Map<string, unknown>();
+const SEEN_MAX = 400;
+const SEEN_MAX_ROWS = 500; // олон мөртэй хүснэгтийг санахгүй: санах ой, харьцуулалт хөтчийг удаашруулна
+
+export const seenResult = <T,>(key: string) => seenResults.get(key) as T | undefined;
+
+export function rememberResult(key: string, value: { rows: unknown[] }) {
+  seenResults.delete(key);
+  if (value.rows.length > SEEN_MAX_ROWS) return;
+  seenResults.set(key, value);
+  if (seenResults.size > SEEN_MAX) seenResults.delete(seenResults.keys().next().value as string);
+}
+
+/** Нэвтрэлт дуусахад цэвэрлэнэ: дараагийн хэрэглэгч өмнөхийн хаалттай датаг харах ёсгүй */
+function forgetClientData() {
+  memo.clear();
+  seenResults.clear();
+}
+
 /** Хэлтсийн dashboard-уудыг урьдчилан ачаална (хажуугийн цэс дээр хулгана очиход) */
 export function prefetchDepartment(code: string) {
   memoized(`dashboards:${code}`, () => request<ArcgisDashboard[]>(`/api/departments/${code}/dashboards`))
@@ -163,10 +184,68 @@ export function prefetchDepartment(code: string) {
     .catch(() => undefined);
 }
 
+// Нэг дор гарсан виджетүүдийн асуулгыг нэг хүсэлтээр илгээнэ: хөтөч нэг хост руу зэрэг 6 хүсэлт л явуулдаг тул
+// тус тусад нь бол дараалалд зогсож, газрын зургийн хүсэлтийг ч хойшлуулдаг
+type PendingQuery = { body: unknown; aborted: boolean; cancelled?: () => void; resolve: (v: never) => void; reject: (e: Error) => void };
+type QueryOutcome = { error?: string };
+const pendingQueries = new Map<string, PendingQuery[]>();
+
+async function sendQueries(itemId: string, queries: PendingQuery[]) {
+  const live = queries.filter((q) => !q.aborted);
+  if (!live.length) return;
+  // Бүх виджет цуцалсан бол (шүүлтүүр солигдсон) хүсэлтийг зогсооно: хөтчийн 6 холболтыг эзлэхгүй
+  const ctrl = new AbortController();
+  for (const q of live) q.cancelled = () => live.every((x) => x.aborted) && ctrl.abort();
+  try {
+    const { results } = await request<{ results: QueryOutcome[] }>(`/api/arcgis/dashboards/${itemId}/query-batch`, {
+      ...json("POST", { queries: live.map((q) => q.body) }),
+      signal: ctrl.signal,
+    });
+    live.forEach((q, i) => (results[i].error === undefined ? q.resolve(results[i] as never) : q.reject(new Error(results[i].error))));
+  } catch (e) {
+    live.forEach((q) => q.reject(e as Error));
+  }
+}
+
+/**
+ * Виджетийн асуулга. `batch` — статистик асуулгын эх үүсвэр: нэг эх үүсвэрийнх нэгтгэгдэж, хамт буцна.
+ * Өөр давхарга удаан бол энэ нь хүлээхгүй. `null` — бичлэг татдаг (удаан байж болох) асуулга: тусдаа явна.
+ */
+function widgetQuery<T>(itemId: string, body: unknown, signal?: AbortSignal, batch: string | null = null): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const query: PendingQuery = { body, aborted: false, resolve: resolve as (v: never) => void, reject };
+    signal?.addEventListener("abort", () => {
+      query.aborted = true;
+      reject(new DOMException("Цуцлагдсан", "AbortError"));
+      query.cancelled?.();
+    });
+    if (batch === null) {
+      void sendQueries(itemId, [query]);
+      return;
+    }
+    const key = `${itemId}|${batch}`;
+    const queue = pendingQueries.get(key);
+    if (queue) {
+      queue.push(query);
+      return;
+    }
+    pendingQueries.set(key, [query]);
+    setTimeout(() => {
+      const queries = pendingQueries.get(key) ?? [];
+      pendingQueries.delete(key);
+      void sendQueries(itemId, queries);
+    }, 0);
+  });
+}
+
 export const api = {
   me: () => request<AuthUser>("/api/auth/me"),
-  login: (username: string, password: string) => request<AuthUser>("/api/auth/login", json("POST", { username, password })),
-  logout: () => request("/api/auth/logout", { method: "POST" }),
+  // Гарах үед замдаа байсан хариу кэшид буцаж орж болзошгүй: шинэ сесс үргэлж цэвэр эхэлнэ
+  login: (username: string, password: string) => request<AuthUser>("/api/auth/login", json("POST", { username, password })).finally(forgetClientData),
+  logout: () => {
+    forgetClientData();
+    return request("/api/auth/logout", { method: "POST" });
+  },
   arcgisStatus: () => request<{ portal: string; credentials: boolean }>("/api/arcgis/status"),
   dashboards: (code: string) =>
     memoized(`dashboards:${code}`, () => request<ArcgisDashboard[]>(`/api/departments/${code}/dashboards`)),
@@ -176,8 +255,7 @@ export const api = {
     request<ArcgisDashboard>(`/api/departments/${code}/dashboards`, json("POST", body)).finally(forgetDashboards),
   deleteDashboard: (id: number) => request(`/api/dashboards/${id}`, { method: "DELETE" }).finally(forgetDashboards),
   dashboardDef: <T>(itemId: string) => memoized(`def:${itemId}`, () => request<T>(`/api/arcgis/dashboards/${itemId}`)),
-  widgetQuery: <T>(itemId: string, body: unknown, signal?: AbortSignal) =>
-    request<T>(`/api/arcgis/dashboards/${itemId}/query`, { ...json("POST", body), signal }),
+  widgetQuery,
   dashboardLayout: (itemId: string) => request<DashboardLayoutOut>(`/api/arcgis/dashboards/${itemId}/layout`),
   saveDashboardLayout: (itemId: string, sizes: Record<string, number[]>, prefs: Record<string, string | null> = {}) =>
     request<DashboardLayoutOut>(`/api/arcgis/dashboards/${itemId}/layout`, json("PUT", { sizes, prefs })),

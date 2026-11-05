@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { api } from "../api";
+import { api, rememberResult, seenResult } from "../api";
 import type { DashboardDef, QueryResult, RuntimeFilter, Selection, Widget } from "./types";
 
 type Link = { sourceId: string; fieldMap?: { sourceName: string; targetName: string }[] };
@@ -93,10 +93,10 @@ export function useWidgetData(widget: Widget, datasetName = "main", sortDesc?: s
   const { itemId, filtersFor } = useDashboard();
   const filters = filtersFor(`${widget.id}#${datasetName}`, widget.id);
   const key = JSON.stringify(filters);
-  const [state, setState] = useState<{ data: QueryResult | null; error: string; loading: boolean }>({
-    data: null,
-    error: "",
-    loading: true,
+  const resultKey = `${itemId}|${widget.id}|${datasetName}|${sortDesc ?? ""}|${key}`;
+  const [state, setState] = useState<{ data: QueryResult | null; error: string; loading: boolean }>(() => {
+    const seen = seenResult<QueryResult>(resultKey);
+    return { data: seen ?? null, error: "", loading: !seen };
   });
 
   useEffect(() => {
@@ -106,10 +106,16 @@ export function useWidgetData(widget: Widget, datasetName = "main", sortDesc?: s
       return;
     }
     const ctrl = new AbortController();
-    setState((s) => ({ ...s, loading: true, error: "" }));
+    // Өмнө харсан бол шууд харуулж, ард нь шинэчилнэ
+    const seen = seenResult<QueryResult>(resultKey);
+    setState((s) => ({ data: seen ?? s.data, error: "", loading: !seen }));
     api
-      .widgetQuery<QueryResult>(itemId, { widget_id: widget.id, dataset: datasetName, filters, sort_desc: sortDesc }, ctrl.signal)
-      .then((data) => setState({ data, error: "", loading: false }))
+      .widgetQuery<QueryResult>(itemId, { widget_id: widget.id, dataset: datasetName, filters, sort_desc: sortDesc }, ctrl.signal, ds.statisticDefinitions?.length ? JSON.stringify(ds.dataSource ?? null) : null)
+      .then((data) => {
+        rememberResult(resultKey, data);
+        // Өөрчлөгдөөгүй бол дахин зурахгүй
+        if (!seen || seen.total !== data.total || JSON.stringify(seen.rows) !== JSON.stringify(data.rows)) setState({ data, error: "", loading: false });
+      })
       .catch((e: Error) => {
         if (e.name !== "AbortError") setState({ data: null, error: e.message, loading: false });
       });
@@ -117,5 +123,6 @@ export function useWidgetData(widget: Widget, datasetName = "main", sortDesc?: s
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId, widget.id, datasetName, key, sortDesc]);
 
-  return { ...state, filtered: filters.length > 0 };
+  // Давхаргад талбар нь байхгүй шүүлтүүрийг сервер алгасдаг: тэмдэг зөвхөн үнэхээр шүүгдсэн үед
+  return { ...state, filtered: filters.length > (state.data?.ignored_filters ?? 0) };
 }

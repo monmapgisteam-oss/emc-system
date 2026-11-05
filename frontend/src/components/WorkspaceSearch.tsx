@@ -49,7 +49,8 @@ export default function WorkspaceSearch({ departments }: { departments: Departme
       ...(catalog ?? []).map((d) => ({
         key: `dash:${d.id}`,
         title: d.section ? `${d.section} · ${d.title}` : d.title,
-        hint: d.department_name,
+        // Ижил нэртэй dashboard («Ус», «Агаар») бүлгээрээ ялгарна
+        hint: d.group ? `${d.department_name} · ${d.group}` : d.department_name,
         to: `/dept/${d.department}?view=${d.id}`,
       })),
     ];
