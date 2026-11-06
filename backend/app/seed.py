@@ -4,15 +4,17 @@
     python -m app.seed --demo   # + туршилтын хяналтын цэгүүд (DEMO-*)
 """
 
+import json
 import math
 import random
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy import select
 
 from .database import Base, SessionLocal, engine
-from .models import ArcgisDashboard, Department, Measurement, MonitoringPoint
+from .models import ArcgisDashboard, DashboardLayout, Department, Measurement, MonitoringPoint
 from .services.plant_dashboards import PLANT_AIR, PLANT_WATER
 
 MAPVIEWER = "https://erdenetmining.maps.arcgis.com/apps/mapviewer/index.html?webmap="
@@ -155,6 +157,15 @@ def apply_sections(db) -> None:
                 continue
             for row in db.scalars(select(ArcgisDashboard).where(ArcgisDashboard.item_id == t[0], ArcgisDashboard.section.is_(None))):
                 row.title, row.section, row.sort_order = t[1], t[3], j
+    db.commit()
+
+
+def load_default_layouts(db) -> None:
+    """Шинэ өгөгдлийн санд үндсэн байрлал: самбарын хэмжээ, байрлал, өнгө хүн бүрт ижил. Хадгалсан байрлалыг хөндөхгүй."""
+    if db.scalar(select(DashboardLayout.item_id).limit(1)):
+        return
+    saved = json.loads((Path(__file__).parent / "default_layouts.json").read_text(encoding="utf-8"))
+    db.add_all(DashboardLayout(item_id=item_id, sizes=row["sizes"] or {}, tree=row["tree"], prefs=row["prefs"]) for item_id, row in saved.items())
     db.commit()
 
 

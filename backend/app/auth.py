@@ -19,7 +19,7 @@ from .services import arcgis
 
 COOKIE = "emc_session"
 SESSION_HOURS = 12
-COOKIE_SECURE = os.getenv("EMC_COOKIE_SECURE", "0") == "1"  # HTTPS дээр 1 болгоно
+COOKIE_SECURE = os.getenv("EMC_COOKIE_SECURE", "1" if os.getenv("VERCEL") else "0") == "1"  # HTTPS дээр 1
 
 # Нэг нэрээр 10 минутад 5-аас олон буруу оролдлого хийвэл түр хаана
 MAX_FAILS, FAIL_WINDOW = 5, 600

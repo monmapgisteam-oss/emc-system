@@ -993,6 +993,9 @@ def test_filter_to_sql():
 
 def test_dashboard_layout_roundtrip(client):
     item = "ef613a0502c74faf9ed7ed95412dd4e0"
+    # Шинэ санд үндсэн байрлал ачаалагдана
+    assert client.get(f"/api/arcgis/dashboards/{item}/layout").json()["sizes"]
+    client.delete(f"/api/arcgis/dashboards/{item}/layout")
     assert client.get(f"/api/arcgis/dashboards/{item}/layout").json()["sizes"] == {}
     r = client.put(f"/api/arcgis/dashboards/{item}/layout", json={"sizes": {"root": [0.75, 0.25]}})
     assert r.status_code == 200 and r.json()["updated_by"] == "Тест"

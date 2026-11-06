@@ -1,0 +1,50 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm ci --prefix frontend && npm ci --prefix uuliin_tsul",
+  "buildCommand": "npm run build --prefix frontend && npm run build --prefix uuliin_tsul",
+  "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 60,
+      "includeFiles": "{backend/app/**,uuliin_tsul/out/**}"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/uuliin-tsul(/.*)?",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/_next/:path*",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/data/:path*",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/logo.svg",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/((?!assets/).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/index.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
+    }
+  ]
+}

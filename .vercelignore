@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+backend/.venv
+backend/emc.db
+backend/def_snapshots
+backend/tests
+frontend/dist
+uuliin_tsul/out
+uuliin_tsul/.next
+uuliin_tsul/tests

@@ -13,7 +13,7 @@ from .config import settings
 from .database import Base, SessionLocal, engine
 from .routers import analytics, dashboards, datasets, departments, displacement
 from .routers import auth as auth_router
-from .seed import apply_groups, apply_sections, remove_departments, seed_departments
+from .seed import apply_groups, apply_sections, load_default_layouts, remove_departments, seed_departments
 from .services import arcgis
 
 FRONTEND_DIST = (Path(__file__).resolve().parents[2] / "frontend" / "dist").resolve()
@@ -46,6 +46,7 @@ async def lifespan(app: FastAPI):
         apply_sections(db)
         apply_groups(db)
         remove_departments(db)
+        load_default_layouts(db)
     yield
 
 
